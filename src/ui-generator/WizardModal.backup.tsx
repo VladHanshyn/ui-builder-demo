@@ -285,7 +285,7 @@ export function WizardModal({
             const el = contentScrollRef.current;
             if (el) restoreScrollTopRef.current = el.scrollTop;
           }}
-          onFocusInCapture={() => {
+          onFocusCapture={() => {
             const el = contentScrollRef.current;
             if (!el) return;
             const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);

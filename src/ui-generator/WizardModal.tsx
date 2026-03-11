@@ -831,7 +831,7 @@ function Step1PreviewArea({ intent, activeTab }: { intent: WizardIntent; activeT
                           if (si.kind === "action") {
                             return (
                               <div key={si.id} className="flex flex-wrap gap-2">
-                                <Button variant="secondary" size="sm" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+                                <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
                               </div>
                             );
                           }
@@ -912,7 +912,7 @@ function Step1PreviewArea({ intent, activeTab }: { intent: WizardIntent; activeT
                 if (si.kind === "action") {
                   return (
                     <div key={si.id}>
-                      <Button variant="secondary" size="sm" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+                      <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
                     </div>
                   );
                 }

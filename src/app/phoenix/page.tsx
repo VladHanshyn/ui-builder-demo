@@ -1023,10 +1023,10 @@ export default function PhoenixPage() {
                   }}
                   onDuplicateRow={(row, _rowIndex) => {
                     const pageId = `preview-${previewingRequest.pageId}`;
-                    const copy = { ...row, _createdAt: String(Date.now()) };
+                    const copy: Record<string, unknown> = { ...row, _createdAt: String(Date.now()) };
                     const titleKey = Object.keys(copy).find(k => k.toLowerCase() === "title" || k.toLowerCase() === "name");
                     if (titleKey && copy[titleKey]) copy[titleKey] = `${copy[titleKey]} (copy)`;
-                    setSavedTableRows(prev => ({ ...prev, [pageId]: [...(prev[pageId] || []), copy] }));
+                    setSavedTableRows(prev => ({ ...prev, [pageId]: [...(prev[pageId] || []), copy as Record<string, string>] }));
                   }}
                   onCreateClick={() => {
                     if (previewingRequest.createPageSpec) {
@@ -1047,10 +1047,10 @@ export default function PhoenixPage() {
                 setActiveCreatePage(activePage);
               }}
               onDuplicateRow={(row, _rowIndex) => {
-                const copy = { ...row, _createdAt: String(Date.now()) };
+                const copy: Record<string, unknown> = { ...row, _createdAt: String(Date.now()) };
                 const titleKey = Object.keys(copy).find(k => k.toLowerCase() === "title" || k.toLowerCase() === "name");
                 if (titleKey && copy[titleKey]) copy[titleKey] = `${copy[titleKey]} (copy)`;
-                setSavedTableRows(prev => ({ ...prev, [activePage]: [...(prev[activePage] || []), copy] }));
+                setSavedTableRows(prev => ({ ...prev, [activePage]: [...(prev[activePage] || []), copy as Record<string, string>] }));
               }}
               onCreateClick={() => {
                 if (createPageSpecs[activePage]) {
