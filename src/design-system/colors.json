@@ -1,0 +1,102 @@
+{
+  "$schema": "./colors.schema.json",
+  "base": {
+    "light": {
+      "primary": "#181a21",
+      "secondary": "#848790",
+      "tertiary": "#bfc1c5",
+      "stroke": "#ebecee",
+      "surfacePrimary": "#ffffff",
+      "surfaceSecondary": "#f6f6f8"
+    },
+    "dark": {
+      "primary": "#fefefe",
+      "secondary": "#9c9c9d",
+      "tertiary": "#5f5f5f",
+      "stroke": "#303030",
+      "surfacePrimary": "#141414",
+      "surfaceSecondary": "#1f1f1f"
+    }
+  },
+  "semantic": {
+    "danger": {
+      "10": "#ffece8",
+      "30": "#ffc5b9",
+      "50": "#ff9f8a",
+      "100": "#ff3e14"
+    },
+    "warning": {
+      "10": "#fff6e7",
+      "30": "#ffe3b8",
+      "50": "#ffd088",
+      "100": "#ffa011"
+    },
+    "success": {
+      "10": "#edf8eb",
+      "30": "#c9e9c4",
+      "50": "#a5db9d",
+      "100": "#4bb73a"
+    },
+    "info": {
+      "10": "#eef0ff",
+      "30": "#ccd1ff",
+      "50": "#aab3ff",
+      "100": "#5466ff"
+    }
+  },
+  "decorative": {
+    "flat": {
+      "white": "#ffffff",
+      "black": "#000000",
+      "brandPrimary": "#fc3d6b",
+      "brandSecondary": "#aa54ff",
+      "onBronze": "#55372e",
+      "onSilver": "#333f49",
+      "onGold": "#514125"
+    },
+    "gradients": {
+      "brandPrimary": "linear-gradient(135deg, #fc3d6b 0%, #aa54ff 100%)",
+      "bronze": "linear-gradient(135deg, #cd7f32 0%, #8b4513 100%)",
+      "silver": "linear-gradient(135deg, #c0c0c0 0%, #808080 100%)",
+      "gold": "linear-gradient(135deg, #ffd700 0%, #daa520 100%)"
+    }
+  },
+  "shaders": {
+    "black": {
+      "64": "rgba(0, 0, 0, 0.64)",
+      "24": "rgba(0, 0, 0, 0.24)",
+      "16": "rgba(0, 0, 0, 0.16)",
+      "8": "rgba(0, 0, 0, 0.08)"
+    },
+    "white": {
+      "64": "rgba(255, 255, 255, 0.64)",
+      "24": "rgba(255, 255, 255, 0.24)",
+      "16": "rgba(255, 255, 255, 0.16)",
+      "8": "rgba(255, 255, 255, 0.08)"
+    }
+  },
+  "special": {
+    "skeleton": {
+      "light": {
+        "from": "#f6f6f8",
+        "via": "#ebecee",
+        "to": "#f6f6f8"
+      },
+      "dark": {
+        "from": "#1f1f1f",
+        "via": "#303030",
+        "to": "#1f1f1f"
+      }
+    },
+    "bottomGradient": {
+      "light": {
+        "from": "rgba(255, 255, 255, 1)",
+        "to": "rgba(255, 255, 255, 0)"
+      },
+      "dark": {
+        "from": "rgba(20, 20, 20, 1)",
+        "to": "rgba(20, 20, 20, 0)"
+      }
+    }
+  }
+}

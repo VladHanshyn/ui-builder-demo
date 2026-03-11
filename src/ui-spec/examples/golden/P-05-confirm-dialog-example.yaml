@@ -1,0 +1,136 @@
+# UI Spec Example: P-05 Confirmation Dialog
+# Standalone confirmation dialog specification
+# Golden UI Spec
+# Pattern: P-05 Confirmation Dialog
+# Expected warnings:
+# - CONS-001 (more than one primary button allowed in screen)
+# - CONS-002 (more than 4 actions allowed in moderation tables)
+# - CONS-003 (back button not in action header)
+# - CONS-004 (save button not in action header)
+# - CONS-005 (save close button not in action header)
+# - CONS-006 (status toggle not in properties panel)
+# - CONS-007 (details section not in properties panel)
+# - CONS-008 (audience section not in properties panel)
+# - CONS-009 (schedule section not in properties panel)
+# - CONS-010 (tags section not in properties panel)
+
+
+version: "1.0"
+id: bulk-delete-confirm
+title: Bulk Delete Confirmation
+description: Confirmation dialog for bulk delete operations
+
+root_pattern: P-05
+patterns_used:
+  - P-05
+
+# ============================================
+# ZONES
+# ============================================
+
+zones:
+  # P-05 zone-a: Header
+  zone-a:
+    pattern_id: P-05
+    components:
+      - id: icon
+        key: warning-icon
+        props:
+          name: warning-triangle
+          size: large
+          variant: danger
+          
+      - id: title
+        key: dialog-title
+        props:
+          text: "Delete Selected Items"
+
+  # P-05 zone-b: Body
+  zone-b:
+    pattern_id: P-05
+    components:
+      - id: description-text
+        key: confirm-message
+        props:
+          text: "You are about to delete {{selected_count}} items."
+          
+      - id: warning-text
+        key: warning-message
+        props:
+          text: "This action cannot be undone. All associated data will be permanently removed."
+          variant: danger
+
+  # P-05 zone-c: Actions
+  zone-c:
+    pattern_id: P-05
+    components:
+      - id: cancel-button
+        key: cancel-btn
+        props:
+          label: "Cancel"
+        actions:
+          - id: cancel-delete
+            type: close_overlay
+            target: bulk-delete-confirm
+            
+      - id: primary-button
+        key: confirm-btn
+        props:
+          label: "Delete {{selected_count}} Items"
+          variant: danger
+        actions:
+          - id: execute-bulk-delete
+            type: api_call
+            method: DELETE
+            target: "/api/items/bulk"
+            payload:
+              ids: "{{selected_ids}}"
+            on_success:
+              id: refresh-and-close
+              type: custom
+              target: "refreshListAndCloseDialog"
+            on_error:
+              id: show-error
+              type: custom
+              target: "showErrorNotification"
+
+# ============================================
+# DATASOURCES
+# ============================================
+
+datasources:
+  - id: selection-context
+    type: static
+    static_data:
+      selected_count: 0
+      selected_ids: []
+
+# ============================================
+# PERMISSIONS
+# ============================================
+
+permissions:
+  action_rules:
+    - target: execute-bulk-delete
+      permission: items.delete
+      fallback: disable
+
+# ============================================
+# DIALOG CONFIGURATION
+# ============================================
+
+# Note: This is a standalone overlay spec.
+# When used within a page spec (P-02, P-03), 
+# include this in the `overlays` array.
+
+# Example integration:
+# overlays:
+#   - id: bulk-delete-confirm
+#     pattern_id: P-05
+#     variant: danger
+#     size: medium
+#     open_triggers:
+#       - bulk-delete-action
+#     close_triggers:
+#       - cancel-delete
+#       - execute-bulk-delete

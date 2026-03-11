@@ -1,0 +1,358 @@
+# UI Spec Example: P-02 Tabular Data View
+# This example shows a Users management table
+# Golden UI Spec
+# Pattern: P-02 Tabular Data View
+# Expected warnings:
+# - CONS-002 (more than 4 actions allowed in moderation tables)
+
+version: "1.0"
+id: users-list
+title: Users Management
+description: Table view for managing system users
+
+root_pattern: P-02
+patterns_used:
+  - P-01
+  - P-02
+  - P-11
+  - P-12
+  - P-13
+  - P-15
+  - P-05
+
+# ============================================
+# ZONES
+# ============================================
+
+zones:
+  # P-02 zone-a: Page Header
+  zone-a:
+    pattern_id: P-02
+    components:
+      - id: page-title
+        props:
+          text: "Users"
+          
+      - id: search-input
+        key: users-search
+        props:
+          placeholder: "Search users..."
+          debounce_ms: 300
+        actions:
+          - id: search-users
+            type: api_call
+            target: users-datasource
+            
+      - id: create-button
+        key: create-user-btn
+        props:
+          label: "Add User"
+          icon: plus
+        actions:
+          - id: navigate-create
+            type: navigate
+            target: "/users/new"
+            requires_permission: users.create
+        condition:
+          permission: users.create
+
+  # P-02 zone-b: Filter Bar (uses P-11 pattern)
+  zone-b:
+    pattern_id: P-02
+    components:
+      - id: tab-group
+        key: status-tabs
+        props:
+          tabs:
+            - { id: all, label: "All" }
+            - { id: active, label: "Active" }
+            - { id: inactive, label: "Inactive" }
+          default: all
+        actions:
+          - id: filter-by-status
+            type: api_call
+            target: users-datasource
+            
+      - id: filter-dropdown
+        key: role-filter
+        props:
+          label: "Role"
+          options_source: roles-datasource
+        data_binding:
+          source: roles-datasource
+          path: "items"
+          
+      - id: date-range-picker
+        key: created-date-filter
+        props:
+          label: "Created"
+
+  # P-02 zone-c: Table Header
+  zone-c:
+    pattern_id: P-02
+    components:
+      - id: checkbox-column
+        key: select-all
+        
+      - id: sortable-column-header
+        key: col-name
+        props:
+          label: "Name"
+          field: "name"
+          sortable: true
+          
+      - id: sortable-column-header
+        key: col-email
+        props:
+          label: "Email"
+          field: "email"
+          sortable: true
+          
+      - id: column-header
+        key: col-role
+        props:
+          label: "Role"
+          
+      - id: sortable-column-header
+        key: col-created
+        props:
+          label: "Created"
+          field: "created_at"
+          sortable: true
+          
+      - id: column-header
+        key: col-status
+        props:
+          label: "Status"
+          
+      - id: column-header
+        key: col-actions
+        props:
+          label: "Actions"
+          align: right
+
+  # P-02 zone-d: Table Body
+  zone-d:
+    pattern_id: P-02
+    components:
+      - id: table-row
+        key: user-row
+        data_binding:
+          source: users-datasource
+          path: "items[]"
+        children:
+          - id: checkbox-cell
+            key: row-select
+            
+          - id: user-chip-cell
+            key: user-name
+            data_binding:
+              source: users-datasource
+              path: "name"
+            props:
+              show_avatar: true
+              
+          - id: text-cell
+            key: user-email
+            data_binding:
+              source: users-datasource
+              path: "email"
+              
+          - id: text-cell
+            key: user-role
+            data_binding:
+              source: users-datasource
+              path: "role.name"
+              
+          - id: date-cell
+            key: user-created
+            data_binding:
+              source: users-datasource
+              path: "created_at"
+            props:
+              format: "MMM DD, YYYY"
+              
+          - id: status-badge
+            key: user-status
+            data_binding:
+              source: users-datasource
+              path: "status"
+              
+          - id: action-button-group
+            key: row-actions
+            children:
+              - id: icon-button
+                key: edit-btn
+                props:
+                  icon: pencil
+                  tooltip: "Edit user"
+                actions:
+                  - id: edit-user
+                    type: navigate
+                    target: "/users/{{id}}/edit"
+                    
+              - id: icon-button
+                key: view-btn
+                props:
+                  icon: eye
+                  tooltip: "View details"
+                actions:
+                  - id: view-user
+                    type: navigate
+                    target: "/users/{{id}}"
+                    
+              - id: icon-button
+                key: delete-btn
+                props:
+                  icon: trash
+                  tooltip: "Delete user"
+                  variant: danger
+                actions:
+                  - id: delete-user
+                    type: open_overlay
+                    target: confirm-delete
+                condition:
+                  permission: users.delete
+
+  # P-02 zone-e: Pagination Footer (uses P-12 pattern)
+  zone-e:
+    pattern_id: P-02
+    components:
+      - id: count-info
+        key: items-count
+        data_binding:
+          source: users-datasource
+          path: "pagination"
+        props:
+          template: "{{from}}-{{to}} of {{total}}"
+          
+      - id: rows-per-page-selector
+        key: page-size
+        props:
+          options: [10, 25, 50, 100]
+          default: 25
+          
+      - id: prev-next-buttons
+        key: pagination-nav
+        data_binding:
+          source: users-datasource
+          path: "pagination"
+
+# ============================================
+# DATASOURCES
+# ============================================
+
+datasources:
+  - id: users-datasource
+    type: rest
+    endpoint: "/api/users"
+    method: GET
+    params:
+      page: 1
+      limit: 25
+      sort: "created_at"
+      order: "desc"
+    pagination:
+      enabled: true
+      page_size: 25
+      page_param: "page"
+      size_param: "limit"
+      total_path: "meta.total"
+      items_path: "data"
+    response_mapping:
+      items: "data"
+      total: "meta.total"
+      page: "meta.page"
+
+  - id: roles-datasource
+    type: rest
+    endpoint: "/api/roles"
+    method: GET
+    response_mapping:
+      items: "data"
+
+# ============================================
+# PERMISSIONS
+# ============================================
+
+permissions:
+  required_roles:
+    - admin
+    - user-manager
+    
+  component_rules:
+    - target: create-user-btn
+      permission: users.create
+      fallback: hide
+      
+    - target: delete-btn
+      permission: users.delete
+      fallback: hide
+      
+  action_rules:
+    - target: delete-user
+      permission: users.delete
+      fallback: disable
+
+# ============================================
+# OVERLAYS
+# ============================================
+
+overlays:
+  - id: confirm-delete
+    pattern_id: P-05
+    title: "Delete User"
+    variant: danger
+    size: small
+    
+    zones:
+      zone-a:
+        pattern_id: P-05
+        components:
+          - id: title
+            props:
+              text: "Delete User"
+          - id: icon
+            props:
+              name: warning
+              variant: danger
+              
+      zone-b:
+        pattern_id: P-05
+        components:
+          - id: warning-text
+            props:
+              text: "Are you sure you want to delete this user? This action cannot be undone."
+              
+      zone-c:
+        pattern_id: P-05
+        components:
+          - id: cancel-button
+            key: cancel-delete
+            props:
+              label: "Cancel"
+            actions:
+              - id: close-confirm
+                type: close_overlay
+                target: confirm-delete
+                
+          - id: primary-button
+            key: confirm-delete-btn
+            props:
+              label: "Delete"
+              variant: danger
+            actions:
+              - id: execute-delete
+                type: api_call
+                method: DELETE
+                target: "/api/users/{{selected_id}}"
+                on_success:
+                  id: refresh-list
+                  type: api_call
+                  target: users-datasource
+                  
+    open_triggers:
+      - delete-user
+    close_triggers:
+      - close-confirm
+      - execute-delete

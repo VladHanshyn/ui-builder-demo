@@ -1,0 +1,1767 @@
+# Interface Patterns - Machine Readable Format
+# Generated from structural analysis of 430 screens
+# Last updated: 2026-01-25
+
+version: "1.0"
+
+classification_rules:
+  dominant_surface:
+    description: "Classify by where user spends most interaction time"
+    priority: 1
+  hybrid:
+    description: "If no single pattern dominates, mark as Hybrid"
+    priority: 2
+  overlay:
+    description: "Secondary structures (modals, dialogs) do not define pattern"
+    priority: 3
+
+patterns:
+  # ============================================
+  # LAYOUT PATTERNS (Root/Page-level)
+  # ============================================
+
+  - id: P-01
+    name: Sidebar Navigation Shell
+    type: layout
+    level: root
+    description: "Primary application frame with persistent navigation"
+    
+    zones:
+      - id: zone-a
+        name: top-bar
+        position: top
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - logo
+          - app-title
+          - project-selector
+          - global-actions
+          - notifications-icon
+          - user-avatar
+        
+      - id: zone-b
+        name: sidebar
+        position: left
+        sizing:
+          width: fixed
+          value: 236px
+        allowed_components:
+          - nav-group
+          - nav-item
+          - nav-submenu
+          - nav-divider
+          - footer-link
+          - back-link
+        
+      - id: zone-c
+        name: content-area
+        position: right
+        sizing:
+          width: fluid
+          value: remaining
+        allowed_components:
+          - any-page-pattern
+    
+    interactions:
+      - element: nav-item
+        action: click
+        result: "Navigate to content, highlight active state"
+      - element: nav-group
+        action: click
+        result: "Expand/collapse submenu"
+      - element: logo
+        action: click
+        result: "Navigate to root/home"
+    
+    constraints:
+      - "Sidebar always visible except in modal overlays"
+      - "Only one nav-item active at a time"
+      - "Submenus collapse when parent loses focus"
+    
+    usage:
+      when:
+        - "Primary application frame"
+        - "Hierarchical navigation required"
+        - "Multi-section applications"
+      avoid:
+        - "Single-page applications"
+        - "Public-facing landing pages"
+
+  - id: P-02
+    name: Tabular Data View
+    type: layout
+    level: page
+    description: "List/collection display with filtering and pagination"
+    
+    zones:
+      - id: zone-a
+        name: page-header
+        position: top
+        sizing:
+          height: fixed
+          value: 48-64px
+        allowed_components:
+          - page-title
+          - search-input
+          - filter-icon
+          - create-button
+          - secondary-actions
+        
+      - id: zone-b
+        name: filter-bar
+        position: below-header
+        sizing:
+          height: fixed
+          value: 40-48px
+        optional: true
+        allowed_components:
+          - tab-group
+          - filter-dropdown
+          - date-range-picker
+          - all-filters-button
+        
+      - id: zone-c
+        name: table-header
+        position: below-filter
+        sizing:
+          height: fixed
+          value: 40px
+        allowed_components:
+          - checkbox-column
+          - sortable-column-header
+          - column-header
+        
+      - id: zone-d
+        name: table-body
+        position: center
+        sizing:
+          height: fluid
+          scrollable: true
+        allowed_components:
+          - table-row
+          - checkbox-cell
+          - toggle-cell
+          - text-cell
+          - date-cell
+          - user-chip-cell
+          - action-button-group
+        
+      - id: zone-e
+        name: pagination-footer
+        position: bottom
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - count-info
+          - rows-per-page-selector
+          - page-selector
+          - prev-next-buttons
+    
+    interactions:
+      - element: column-header
+        action: click
+        result: "Toggle sort direction"
+      - element: row-checkbox
+        action: click
+        result: "Select/deselect row"
+      - element: header-checkbox
+        action: click
+        result: "Select/deselect all visible"
+      - element: table-row
+        action: click
+        result: "Navigate to detail view"
+      - element: table-row
+        action: hover
+        result: "Show row actions, highlight"
+      - element: action-icon
+        action: click
+        result: "Execute action (edit/copy/delete)"
+      - element: tab
+        action: click
+        result: "Filter data by category"
+    
+    constraints:
+      - "Minimum 1 data column required"
+      - "Actions column always rightmost"
+      - "Checkbox column always leftmost if present"
+      - "Pagination required for datasets > 25 items"
+    
+    usage:
+      when:
+        - "Displaying collections of similar items"
+        - "Sorting/filtering required"
+        - "Bulk operations needed"
+      avoid:
+        - "Single item display"
+        - "Highly visual content (use P-04 instead)"
+
+  - id: P-03
+    name: Detail Editor with Properties Panel
+    type: layout
+    level: page
+    description: "Edit/configuration view with form content and right sidebar"
+    
+    zones:
+      - id: zone-a
+        name: action-header
+        position: top
+        sizing:
+          height: fixed
+          value: 48-64px
+        allowed_components:
+          - back-button
+          - page-title
+          - status-badge
+          - save-button
+          - save-close-button
+          - secondary-actions
+        
+      - id: zone-b
+        name: main-content
+        position: left
+        sizing:
+          width: fluid
+          value: "remaining - 330px"
+          scrollable: true
+        allowed_components:
+          - form-section
+          - accordion-section
+          - input-field
+          - textarea-field
+          - select-field
+          - toggle-field
+          - upload-area
+          - preview-area
+          - nested-list
+          - card-grid
+        
+      - id: zone-c
+        name: properties-panel
+        position: right
+        sizing:
+          width: fixed
+          value: 330px
+          scrollable: true
+        allowed_components:
+          - status-toggle
+          - details-section
+          - audience-section
+          - schedule-section
+          - tags-section
+          - delete-button
+    
+    interactions:
+      - element: back-button
+        action: click
+        result: "Navigate to list view"
+      - element: save-button
+        action: click
+        result: "Persist changes, stay on page"
+      - element: save-close-button
+        action: click
+        result: "Persist changes, navigate back"
+      - element: status-toggle
+        action: click
+        result: "Toggle active/inactive state"
+      - element: delete-button
+        action: click
+        result: "Show confirmation dialog"
+      - element: accordion-header
+        action: click
+        result: "Expand/collapse section"
+    
+    constraints:
+      - "Back button required in header"
+      - "At least one save action required"
+      - "Properties panel always visible (not collapsible)"
+      - "Delete button at bottom of properties panel"
+    
+    usage:
+      when:
+        - "Creating or editing single items"
+        - "Item has many configurable properties"
+        - "Status/metadata should be visible while editing"
+      avoid:
+        - "Read-only views"
+        - "Simple forms (< 5 fields)"
+
+  # ============================================
+  # COMPONENT PATTERNS (Section-level)
+  # ============================================
+
+  - id: P-04
+    name: Card Selection Grid
+    type: component
+    level: section
+    description: "Visual item picker with card-based selection"
+    
+    zones:
+      - id: zone-a
+        name: grid-header
+        position: top
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - tab-group
+          - search-input
+          - filter-dropdown
+          - view-toggle
+        
+      - id: zone-b
+        name: card-grid
+        position: center
+        sizing:
+          height: fluid
+          scrollable: true
+        allowed_components:
+          - selectable-card
+          - card-image
+          - card-title
+          - card-metadata
+          - selection-indicator
+          - quantity-control
+        
+      - id: zone-c
+        name: action-bar
+        position: bottom
+        sizing:
+          height: fixed
+          value: 48px
+          sticky: true
+        optional: true
+        allowed_components:
+          - add-selected-button
+          - clear-button
+          - selected-count
+    
+    interactions:
+      - element: card
+        action: click
+        result: "Toggle selection state"
+      - element: card
+        action: hover
+        result: "Show selection indicator"
+      - element: tab
+        action: click
+        result: "Filter by category"
+      - element: add-selected-button
+        action: click
+        result: "Confirm selection"
+    
+    constraints:
+      - "Cards must have consistent sizing"
+      - "Grid responds to container width"
+      - "Action bar appears only when items selected"
+    
+    usage:
+      when:
+        - "Selecting visual items"
+        - "Items benefit from visual representation"
+        - "Building collections or configurations"
+      avoid:
+        - "Text-only data"
+        - "Large datasets without categorization"
+
+  - id: P-09
+    name: Orderable List
+    type: component
+    level: section
+    description: "Priority/sequence editor with drag-and-drop"
+    
+    zones:
+      - id: zone-a
+        name: list-header
+        position: top
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - section-title
+          - expand-all-button
+          - collapse-all-button
+        
+      - id: zone-b
+        name: filter-tabs
+        position: below-header
+        sizing:
+          height: fixed
+          value: 40px
+        optional: true
+        allowed_components:
+          - tab-group
+        
+      - id: zone-c
+        name: orderable-rows
+        position: center
+        sizing:
+          height: fluid
+          scrollable: true
+        allowed_components:
+          - drag-handle
+          - status-toggle
+          - row-content
+          - order-buttons
+          - row-actions
+        
+      - id: zone-d
+        name: footer-actions
+        position: bottom
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - cancel-button
+          - save-button
+    
+    interactions:
+      - element: drag-handle
+        action: drag
+        result: "Reorder item position"
+      - element: to-top-button
+        action: click
+        result: "Move to first position"
+      - element: to-bottom-button
+        action: click
+        result: "Move to last position"
+      - element: status-toggle
+        action: click
+        result: "Enable/disable item"
+    
+    constraints:
+      - "Drag handle required for each row"
+      - "Order persists only after save"
+      - "Visual feedback during drag required"
+    
+    usage:
+      when:
+        - "Setting display priority"
+        - "Ordering navigation items"
+        - "Configuring sequence/workflow"
+      avoid:
+        - "Lists where order doesn't matter"
+
+  - id: P-10
+    name: Expandable Accordion Section
+    type: component
+    level: section
+    description: "Collapsible content block for organizing forms"
+    
+    zones:
+      - id: zone-a
+        name: section-header
+        position: top
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - drag-handle
+          - status-toggle
+          - section-title
+          - badge
+          - section-actions
+          - expand-toggle
+        
+      - id: zone-b
+        name: section-content
+        position: below-header
+        sizing:
+          height: auto
+          collapsible: true
+        allowed_components:
+          - form-field
+          - nested-list
+          - card-grid
+          - custom-content
+    
+    interactions:
+      - element: section-header
+        action: click
+        result: "Toggle expand/collapse"
+      - element: expand-toggle
+        action: click
+        result: "Toggle expand/collapse"
+      - element: status-toggle
+        action: click
+        result: "Enable/disable section"
+    
+    constraints:
+      - "Header always visible regardless of state"
+      - "Content animates on expand/collapse"
+      - "Only one section expanded at a time (optional)"
+    
+    usage:
+      when:
+        - "Organizing long forms"
+        - "Grouping related settings"
+        - "Space efficiency matters"
+      avoid:
+        - "Single-section content"
+        - "Content that must always be visible"
+
+  - id: P-11
+    name: Filter Bar
+    type: component
+    level: section
+    description: "Query controls for filtering data"
+    
+    zones:
+      - id: zone-a
+        name: filter-controls
+        position: left
+        sizing:
+          width: auto
+        allowed_components:
+          - filter-dropdown
+          - date-range-picker
+          - toggle-filter
+          - all-filters-button
+        
+      - id: zone-b
+        name: search-actions
+        position: right
+        sizing:
+          width: auto
+        allowed_components:
+          - search-input
+          - refresh-button
+          - clear-filters-button
+    
+    interactions:
+      - element: filter-dropdown
+        action: click
+        result: "Open options menu"
+      - element: option
+        action: select
+        result: "Apply filter immediately"
+      - element: all-filters-button
+        action: click
+        result: "Expand advanced filters"
+      - element: search-input
+        action: input
+        result: "Filter after debounce"
+      - element: clear-button
+        action: click
+        result: "Reset all filters"
+    
+    constraints:
+      - "Filters apply immediately on change"
+      - "Search has 300ms debounce"
+      - "Clear button only visible when filters active"
+    
+    usage:
+      when:
+        - "Above data tables"
+        - "Multiple filter dimensions exist"
+      avoid:
+        - "Single filter option (use inline instead)"
+
+  - id: P-12
+    name: Pagination Footer
+    type: component
+    level: section
+    description: "Navigation and info bar for paginated data"
+    
+    zones:
+      - id: zone-a
+        name: count-info
+        position: left
+        sizing:
+          width: auto
+        allowed_components:
+          - range-text
+          - total-count
+        
+      - id: zone-b
+        name: size-control
+        position: center-left
+        sizing:
+          width: auto
+        optional: true
+        allowed_components:
+          - rows-per-page-label
+          - rows-per-page-dropdown
+        
+      - id: zone-c
+        name: page-picker
+        position: center-right
+        sizing:
+          width: auto
+        allowed_components:
+          - page-label
+          - page-input
+          - page-dropdown
+        
+      - id: zone-d
+        name: navigation
+        position: right
+        sizing:
+          width: auto
+        allowed_components:
+          - first-button
+          - prev-button
+          - next-button
+          - last-button
+    
+    interactions:
+      - element: prev-button
+        action: click
+        result: "Go to previous page"
+      - element: next-button
+        action: click
+        result: "Go to next page"
+      - element: rows-per-page
+        action: change
+        result: "Reload with new size"
+      - element: page-input
+        action: change
+        result: "Jump to specific page"
+    
+    constraints:
+      - "Prev disabled on first page"
+      - "Next disabled on last page"
+      - "Page size options: 10, 25, 50, 100"
+    
+    usage:
+      when:
+        - "Below paginated lists/tables"
+        - "Data exceeds viewport"
+      avoid:
+        - "Datasets < 25 items"
+
+  - id: P-13
+    name: Action Button Group
+    type: component
+    level: inline
+    description: "Inline action controls for table rows or cards"
+    
+    zones:
+      - id: zone-a
+        name: primary-actions
+        position: left
+        sizing:
+          width: auto
+        allowed_components:
+          - icon-button
+          - text-button
+        
+      - id: zone-b
+        name: overflow
+        position: right
+        sizing:
+          width: auto
+        optional: true
+        allowed_components:
+          - more-button
+          - dropdown-menu
+    
+    interactions:
+      - element: icon-button
+        action: click
+        result: "Execute action"
+      - element: icon-button
+        action: hover
+        result: "Show tooltip"
+      - element: more-button
+        action: click
+        result: "Open dropdown menu"
+    
+    constraints:
+      - "Max 4 visible actions"
+      - "Overflow for additional actions"
+      - "Destructive actions require confirmation"
+    
+    standard_actions:
+      - id: edit
+        icon: pencil
+        position: 1
+      - id: view
+        icon: eye
+        position: 2
+      - id: copy
+        icon: copy
+        position: 3
+      - id: delete
+        icon: trash
+        position: 4
+        variant: danger
+    
+    usage:
+      when:
+        - "Per-row actions in tables"
+        - "Card action areas"
+      avoid:
+        - "More than 6 actions total"
+
+  - id: P-14
+    name: Status Toggle Header
+    type: component
+    level: inline
+    description: "State control section for entity status"
+    
+    zones:
+      - id: zone-a
+        name: toggle-control
+        position: full
+        sizing:
+          width: full
+        allowed_components:
+          - label
+          - toggle-switch
+          - status-text
+    
+    interactions:
+      - element: toggle
+        action: click
+        result: "Change state"
+    
+    constraints:
+      - "Toggle reflects current state immediately"
+      - "May require confirmation for state change"
+    
+    usage:
+      when:
+        - "At top of edit panels"
+        - "Publish/unpublish is primary action"
+      avoid:
+        - "Multiple boolean states (use checkboxes)"
+
+  - id: P-15
+    name: Multi-Select Action Bar
+    type: component
+    level: section
+    description: "Bulk action controls for selected items"
+    
+    zones:
+      - id: zone-a
+        name: selection-info
+        position: left
+        sizing:
+          width: auto
+        allowed_components:
+          - selected-count
+          - selection-label
+        
+      - id: zone-b
+        name: bulk-actions
+        position: center
+        sizing:
+          width: auto
+        allowed_components:
+          - action-button
+        
+      - id: zone-c
+        name: clear
+        position: right
+        sizing:
+          width: auto
+        allowed_components:
+          - clear-button
+    
+    interactions:
+      - element: action-button
+        action: click
+        result: "Apply to all selected"
+      - element: clear-button
+        action: click
+        result: "Deselect all items"
+    
+    constraints:
+      - "Only visible when items selected"
+      - "Sticky positioning while scrolling"
+      - "Disappears when selection cleared"
+    
+    usage:
+      when:
+        - "Bulk operations common"
+        - "Selection grids and tables"
+      avoid:
+        - "Single-select contexts"
+
+  # ============================================
+  # OVERLAY PATTERNS (Modal)
+  # ============================================
+
+  - id: P-05
+    name: Confirmation Dialog
+    type: overlay
+    level: modal
+    description: "Action verification dialog"
+    
+    zones:
+      - id: zone-a
+        name: header
+        position: top
+        sizing:
+          height: auto
+        allowed_components:
+          - title
+          - icon
+        
+      - id: zone-b
+        name: body
+        position: center
+        sizing:
+          height: auto
+        allowed_components:
+          - description-text
+          - warning-text
+        
+      - id: zone-c
+        name: actions
+        position: bottom
+        sizing:
+          height: auto
+        allowed_components:
+          - primary-button
+          - cancel-button
+    
+    interactions:
+      - element: primary-button
+        action: click
+        result: "Execute action, close dialog"
+      - element: cancel-button
+        action: click
+        result: "Close dialog, no action"
+      - element: overlay
+        action: click
+        result: "Close dialog (optional)"
+      - element: escape-key
+        action: press
+        result: "Close dialog"
+    
+    variants:
+      - id: danger
+        description: "Red primary button for destructive actions"
+      - id: info
+        description: "Neutral primary button"
+    
+    sizes:
+      small:
+        width: 200px
+      medium:
+        width: 400px
+    
+    constraints:
+      - "Always centered on screen"
+      - "Backdrop blocks interaction with page"
+      - "Focus trapped within dialog"
+    
+    usage:
+      when:
+        - "Before destructive actions"
+        - "Irreversible operations"
+        - "Action affects other data/users"
+      avoid:
+        - "Informational messages (use toast)"
+
+  - id: P-06
+    name: Input Dialog
+    type: overlay
+    level: modal
+    description: "Data entry modal for quick input"
+    
+    zones:
+      - id: zone-a
+        name: header
+        position: top
+        sizing:
+          height: auto
+        allowed_components:
+          - title
+        
+      - id: zone-b
+        name: description
+        position: below-header
+        sizing:
+          height: auto
+        optional: true
+        allowed_components:
+          - instruction-text
+        
+      - id: zone-c
+        name: input-area
+        position: center
+        sizing:
+          height: auto
+        allowed_components:
+          - input-field
+          - textarea-field
+          - select-field
+          - toggle-field
+        
+      - id: zone-d
+        name: actions
+        position: bottom
+        sizing:
+          height: auto
+        allowed_components:
+          - cancel-button
+          - submit-button
+    
+    interactions:
+      - element: input-field
+        action: focus
+        result: "Show focus state"
+      - element: submit-button
+        action: click
+        result: "Validate, submit, close"
+      - element: cancel-button
+        action: click
+        result: "Close, discard input"
+    
+    constraints:
+      - "Submit disabled until validation passes"
+      - "First input auto-focused on open"
+      - "Enter key submits if single input"
+    
+    usage:
+      when:
+        - "Quick data entry without navigation"
+        - "Renaming, duplicating items"
+        - "Adding simple records"
+      avoid:
+        - "Complex forms (> 5 fields)"
+
+  - id: P-07
+    name: Selection List Panel
+    type: overlay
+    level: modal
+    description: "Multi-item picker with filtering and pagination"
+    
+    zones:
+      - id: zone-a
+        name: panel-header
+        position: top
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - title
+          - selected-count
+        
+      - id: zone-b
+        name: filter-controls
+        position: below-header
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - filter-dropdown
+          - search-input
+          - refresh-button
+        
+      - id: zone-c
+        name: column-headers
+        position: below-filter
+        sizing:
+          height: fixed
+          value: 40px
+        allowed_components:
+          - checkbox-header
+          - column-header
+        
+      - id: zone-d
+        name: selectable-rows
+        position: center
+        sizing:
+          height: fluid
+          scrollable: true
+        allowed_components:
+          - checkbox-row
+          - row-content
+        
+      - id: zone-e
+        name: pagination
+        position: below-rows
+        sizing:
+          height: fixed
+          value: 40px
+        allowed_components:
+          - count-info
+          - page-controls
+        
+      - id: zone-f
+        name: panel-footer
+        position: bottom
+        sizing:
+          height: fixed
+          value: 48px
+        allowed_components:
+          - cancel-button
+          - add-button
+    
+    interactions:
+      - element: row-checkbox
+        action: click
+        result: "Toggle selection"
+      - element: header-checkbox
+        action: click
+        result: "Select/deselect all visible"
+      - element: add-button
+        action: click
+        result: "Confirm selection, close"
+      - element: cancel-button
+        action: click
+        result: "Discard selection, close"
+    
+    constraints:
+      - "Selected count updates in real-time"
+      - "Add button shows count: 'Add Items (N)'"
+      - "Selection persists across pages"
+    
+    usage:
+      when:
+        - "Adding multiple related items"
+        - "Selecting from large collections"
+        - "Filtering/search necessary"
+      avoid:
+        - "Single item selection"
+        - "Small lists (< 10 items)"
+
+  - id: P-08
+    name: Device Preview Overlay
+    type: overlay
+    level: modal
+    description: "Contextual preview with device mockup"
+    
+    zones:
+      - id: zone-a
+        name: preview-controls
+        position: top
+        sizing:
+          height: auto
+        allowed_components:
+          - tab-group
+          - page-dots
+          - close-button
+        
+      - id: zone-b
+        name: device-frame
+        position: center
+        sizing:
+          width: auto
+          height: auto
+        allowed_components:
+          - device-mockup
+          - preview-content
+          - device-navigation
+        
+      - id: zone-c
+        name: config-panel
+        position: right
+        sizing:
+          width: fixed
+          value: 300-350px
+        optional: true
+        allowed_components:
+          - input-field
+          - select-field
+          - config-list
+          - action-button
+    
+    interactions:
+      - element: close-button
+        action: click
+        result: "Exit preview mode"
+      - element: tab
+        action: click
+        result: "Switch preview section"
+      - element: page-dot
+        action: click
+        result: "Navigate preview pages"
+      - element: config-input
+        action: change
+        result: "Update preview in real-time"
+    
+    device_types:
+      - id: phone
+        width: 375px
+        height: 812px
+      - id: tablet
+        width: 768px
+        height: 1024px
+    
+    constraints:
+      - "Preview updates live with config changes"
+      - "Device frame maintains aspect ratio"
+      - "Close button always visible"
+    
+    usage:
+      when:
+        - "Previewing end-user experience"
+        - "Testing configurations visually"
+        - "Context differs from admin view"
+      avoid:
+        - "Non-visual configurations"
+
+# ============================================
+# COMPONENT MAPPINGS
+# ============================================
+# 
+# Component definitions updated: 2026-01-25
+# Added 107 missing component definitions
+# New IDs: logo, app-title, project-selector, global-actions, notifications-icon,
+#   user-avatar, nav-submenu, nav-divider, footer-link, back-link, page-title,
+#   search-input, filter-icon, create-button, secondary-actions, tab-group,
+#   filter-dropdown, date-range-picker, all-filters-button, checkbox-column,
+#   sortable-column-header, column-header, checkbox-cell, toggle-cell, text-cell,
+#   date-cell, user-chip-cell, action-button-group, count-info, rows-per-page-selector,
+#   page-selector, prev-next-buttons, back-button, status-badge, save-button,
+#   save-close-button, form-section, accordion-section, textarea-field, toggle-field,
+#   upload-area, preview-area, nested-list, card-grid, status-toggle, details-section,
+#   audience-section, schedule-section, tags-section, delete-button, view-toggle,
+#   card-image, card-title, card-metadata, selection-indicator, quantity-control,
+#   add-selected-button, clear-button, selected-count, section-title, expand-all-button,
+#   collapse-all-button, drag-handle, row-content, order-buttons, row-actions,
+#   cancel-button, section-actions, expand-toggle, form-field, custom-content,
+#   toggle-filter, refresh-button, clear-filters-button, range-text, total-count,
+#   rows-per-page-label, rows-per-page-dropdown, page-label, page-input, page-dropdown,
+#   first-button, prev-button, next-button, last-button, text-button, more-button,
+#   dropdown-menu, label, status-text, selection-label, action-button, title, icon,
+#   description-text, warning-text, instruction-text, submit-button, checkbox-header,
+#   checkbox-row, page-controls, add-button, page-dots, close-button, device-mockup,
+#   preview-content, device-navigation, config-list, row-checkbox, header-checkbox,
+#   action-icon, tab, card, accordion-header, section-header, to-top-button,
+#   to-bottom-button, toggle, option, page-dot, config-input
+#
+
+component_definitions:
+
+  # ============================================
+  # NAVIGATION COMPONENTS
+  # ============================================
+  
+  - id: nav-item
+    element: button | anchor
+    states: [default, hover, active, disabled]
+    
+  - id: nav-group
+    element: div
+    children: [nav-item, nav-submenu]
+    
+  - id: nav-submenu
+    element: div
+    children: [nav-item]
+    states: [collapsed, expanded]
+    
+  - id: nav-divider
+    element: hr
+    
+  - id: footer-link
+    element: anchor
+    states: [default, hover]
+    
+  - id: back-link
+    element: anchor
+    states: [default, hover]
+
+  # ============================================
+  # HEADER / TOP-BAR COMPONENTS
+  # ============================================
+  
+  - id: logo
+    element: img | svg
+    
+  - id: app-title
+    element: span
+    
+  - id: project-selector
+    element: button
+    states: [default, open]
+    
+  - id: global-actions
+    element: div
+    children: [icon-button]
+    
+  - id: notifications-icon
+    element: button
+    states: [default, hover, has-unread]
+    
+  - id: user-avatar
+    element: img | div
+    states: [default, hover]
+
+  # ============================================
+  # PAGE HEADER COMPONENTS
+  # ============================================
+  
+  - id: page-title
+    element: h1
+    
+  - id: title
+    element: h2 | h3
+    
+  - id: section-title
+    element: h3 | h4
+
+  # ============================================
+  # FORM ELEMENTS
+  # ============================================
+  
+  - id: input-field
+    element: input
+    variants: [text, number, email, password, search]
+    states: [default, focus, error, disabled]
+    
+  - id: textarea-field
+    element: textarea
+    states: [default, focus, error, disabled]
+    
+  - id: select-field
+    element: select | custom
+    states: [default, open, focus, disabled]
+    
+  - id: toggle-switch
+    element: button
+    states: [off, on, disabled]
+    
+  - id: toggle-field
+    element: div
+    contains: [label, toggle-switch]
+    
+  - id: checkbox
+    element: input[type=checkbox]
+    states: [unchecked, checked, indeterminate, disabled]
+    
+  - id: form-field
+    element: div
+    contains: [label, input-field | select-field | textarea-field]
+    
+  - id: form-section
+    element: fieldset | div
+    children: [form-field]
+    
+  - id: label
+    element: label
+    
+  - id: upload-area
+    element: div
+    states: [default, dragover, uploading, complete, error]
+
+  # ============================================
+  # BUTTONS
+  # ============================================
+  
+  - id: primary-button
+    element: button
+    variants: [default, danger]
+    states: [default, hover, pressed, loading, disabled]
+    
+  - id: secondary-button
+    element: button
+    states: [default, hover, pressed, disabled]
+    
+  - id: icon-button
+    element: button
+    states: [default, hover, pressed, disabled]
+    requires: [icon, tooltip]
+    
+  - id: text-button
+    element: button
+    states: [default, hover, pressed, disabled]
+    
+  - id: back-button
+    element: button
+    states: [default, hover]
+    
+  - id: create-button
+    element: button
+    variants: [primary]
+    states: [default, hover, pressed, disabled]
+    
+  - id: save-button
+    element: button
+    states: [default, hover, pressed, loading, disabled]
+    
+  - id: save-close-button
+    element: button
+    states: [default, hover, pressed, loading, disabled]
+    
+  - id: cancel-button
+    element: button
+    states: [default, hover, pressed, disabled]
+    
+  - id: submit-button
+    element: button
+    states: [default, hover, pressed, loading, disabled]
+    
+  - id: delete-button
+    element: button
+    variants: [danger]
+    states: [default, hover, pressed, disabled]
+    
+  - id: add-button
+    element: button
+    states: [default, hover, pressed, disabled]
+    
+  - id: add-selected-button
+    element: button
+    states: [default, hover, pressed, disabled]
+    
+  - id: clear-button
+    element: button
+    states: [default, hover, pressed, disabled]
+    
+  - id: close-button
+    element: button
+    states: [default, hover, pressed]
+    
+  - id: refresh-button
+    element: button
+    states: [default, hover, pressed, loading]
+    
+  - id: more-button
+    element: button
+    states: [default, hover, pressed, open]
+    
+  - id: expand-toggle
+    element: button
+    states: [collapsed, expanded]
+    
+  - id: expand-all-button
+    element: button
+    states: [default, hover]
+    
+  - id: collapse-all-button
+    element: button
+    states: [default, hover]
+    
+  - id: view-toggle
+    element: button
+    variants: [grid, list]
+    states: [default, active]
+
+  # ============================================
+  # PAGINATION BUTTONS
+  # ============================================
+  
+  - id: first-button
+    element: button
+    states: [default, hover, disabled]
+    
+  - id: prev-button
+    element: button
+    states: [default, hover, disabled]
+    
+  - id: next-button
+    element: button
+    states: [default, hover, disabled]
+    
+  - id: last-button
+    element: button
+    states: [default, hover, disabled]
+    
+  - id: prev-next-buttons
+    element: div
+    contains: [prev-button, next-button]
+
+  # ============================================
+  # ORDER BUTTONS
+  # ============================================
+  
+  - id: order-buttons
+    element: div
+    contains: [to-top-button, to-bottom-button]
+    
+  - id: to-top-button
+    element: button
+    states: [default, hover, disabled]
+    
+  - id: to-bottom-button
+    element: button
+    states: [default, hover, disabled]
+
+  # ============================================
+  # FILTER COMPONENTS
+  # ============================================
+  
+  - id: search-input
+    element: input[type=search]
+    states: [default, focus, filled]
+    
+  - id: filter-icon
+    element: button
+    states: [default, hover, active]
+    
+  - id: filter-dropdown
+    element: div
+    states: [default, open]
+    contains: [dropdown-menu]
+    
+  - id: toggle-filter
+    element: button
+    states: [off, on]
+    
+  - id: all-filters-button
+    element: button
+    states: [default, hover, open]
+    
+  - id: clear-filters-button
+    element: button
+    states: [default, hover, disabled]
+    
+  - id: date-range-picker
+    element: div
+    states: [default, open]
+
+  # ============================================
+  # TAB COMPONENTS
+  # ============================================
+  
+  - id: tab-group
+    element: div
+    children: [tab]
+    
+  - id: tab
+    element: button
+    states: [default, hover, active, disabled]
+
+  # ============================================
+  # TABLE COMPONENTS
+  # ============================================
+  
+  - id: table-row
+    element: tr
+    states: [default, hover, selected]
+    
+  - id: column-header
+    element: th
+    states: [default, hover]
+    
+  - id: sortable-column-header
+    element: th
+    states: [default, hover, sorted-asc, sorted-desc]
+    
+  - id: checkbox-column
+    element: th
+    contains: [header-checkbox]
+    
+  - id: checkbox-header
+    element: th
+    contains: [checkbox]
+    states: [unchecked, checked, indeterminate]
+    
+  - id: header-checkbox
+    element: input[type=checkbox]
+    states: [unchecked, checked, indeterminate]
+    
+  - id: checkbox-cell
+    element: td
+    contains: [row-checkbox]
+    
+  - id: row-checkbox
+    element: input[type=checkbox]
+    states: [unchecked, checked]
+    
+  - id: checkbox-row
+    element: tr
+    contains: [row-checkbox, row-content]
+    states: [default, hover, selected]
+    
+  - id: toggle-cell
+    element: td
+    contains: [toggle-switch]
+    
+  - id: text-cell
+    element: td
+    
+  - id: date-cell
+    element: td
+    
+  - id: user-chip-cell
+    element: td
+    contains: [user-chip]
+    
+  - id: row-content
+    element: td | div
+    
+  - id: action-button-group
+    element: td | div
+    children: [icon-button]
+
+  # ============================================
+  # CARD COMPONENTS
+  # ============================================
+  
+  - id: selectable-card
+    element: div
+    states: [default, hover, selected]
+    
+  - id: card
+    element: div
+    states: [default, hover, selected]
+    
+  - id: card-image
+    element: img | div
+    
+  - id: card-title
+    element: span | h4
+    
+  - id: card-metadata
+    element: span | div
+    
+  - id: card-grid
+    element: div
+    children: [selectable-card | card]
+
+  # ============================================
+  # SELECTION COMPONENTS
+  # ============================================
+  
+  - id: selection-indicator
+    element: div
+    states: [hidden, visible, selected]
+    
+  - id: selected-count
+    element: span
+    
+  - id: selection-label
+    element: span
+    
+  - id: quantity-control
+    element: div
+    contains: [input-field, icon-button]
+
+  # ============================================
+  # ACCORDION COMPONENTS
+  # ============================================
+  
+  - id: accordion-section
+    element: div
+    children: [accordion-header, section-content]
+    states: [collapsed, expanded]
+    
+  - id: accordion-header
+    element: button | div
+    states: [default, hover]
+    
+  - id: section-header
+    element: div
+    states: [default, hover]
+    
+  - id: section-content
+    element: div
+    states: [collapsed, expanded]
+    
+  - id: section-actions
+    element: div
+    children: [icon-button]
+
+  # ============================================
+  # LIST & ROW COMPONENTS
+  # ============================================
+  
+  - id: nested-list
+    element: ul | div
+    children: [list-item | row-content]
+    
+  - id: row-actions
+    element: div
+    children: [icon-button]
+    
+  - id: config-list
+    element: ul | div
+    children: [list-item]
+
+  # ============================================
+  # DRAG & DROP
+  # ============================================
+  
+  - id: drag-handle
+    element: div
+    states: [default, dragging]
+
+  # ============================================
+  # STATUS & TOGGLE COMPONENTS
+  # ============================================
+  
+  - id: status-toggle
+    element: div
+    contains: [label, toggle-switch]
+    states: [off, on]
+    
+  - id: status-badge
+    element: span
+    variants: [active, inactive, pending, draft, error]
+    
+  - id: status-text
+    element: span
+    
+  - id: toggle
+    element: button
+    states: [off, on, disabled]
+
+  # ============================================
+  # PROPERTIES PANEL SECTIONS
+  # ============================================
+  
+  - id: details-section
+    element: div
+    children: [form-field]
+    
+  - id: audience-section
+    element: div
+    children: [form-field]
+    
+  - id: schedule-section
+    element: div
+    children: [form-field, date-range-picker]
+    
+  - id: tags-section
+    element: div
+    children: [badge]
+
+  # ============================================
+  # PREVIEW COMPONENTS
+  # ============================================
+  
+  - id: preview-area
+    element: div
+    
+  - id: device-mockup
+    element: div
+    variants: [phone, tablet]
+    
+  - id: preview-content
+    element: div
+    
+  - id: device-navigation
+    element: div
+
+  # ============================================
+  # PAGINATION COMPONENTS
+  # ============================================
+  
+  - id: count-info
+    element: span
+    
+  - id: range-text
+    element: span
+    
+  - id: total-count
+    element: span
+    
+  - id: rows-per-page-selector
+    element: div
+    contains: [rows-per-page-label, rows-per-page-dropdown]
+    
+  - id: rows-per-page-label
+    element: span
+    
+  - id: rows-per-page-dropdown
+    element: select | custom
+    
+  - id: page-selector
+    element: div
+    contains: [page-label, page-input | page-dropdown]
+    
+  - id: page-label
+    element: span
+    
+  - id: page-input
+    element: input[type=number]
+    
+  - id: page-dropdown
+    element: select | custom
+    
+  - id: page-controls
+    element: div
+    contains: [prev-button, next-button]
+    
+  - id: page-dots
+    element: div
+    children: [page-dot]
+    
+  - id: page-dot
+    element: button
+    states: [default, active]
+
+  # ============================================
+  # DATA DISPLAY
+  # ============================================
+  
+  - id: user-chip
+    element: span
+    contains: [avatar, name]
+    
+  - id: badge
+    element: span
+    variants: [count, status]
+
+  # ============================================
+  # FEEDBACK
+  # ============================================
+  
+  - id: toast-notification
+    element: div
+    variants: [success, error, warning, info]
+    auto_dismiss: true
+
+  # ============================================
+  # MENU COMPONENTS
+  # ============================================
+  
+  - id: dropdown-menu
+    element: div
+    children: [option]
+    states: [closed, open]
+    
+  - id: option
+    element: button | div
+    states: [default, hover, selected, disabled]
+    
+  - id: secondary-actions
+    element: div
+    children: [icon-button | secondary-button]
+
+  # ============================================
+  # ICON & TEXT
+  # ============================================
+  
+  - id: icon
+    element: svg | img
+    
+  - id: action-icon
+    element: button
+    states: [default, hover, pressed]
+    requires: [icon, tooltip]
+    
+  - id: description-text
+    element: p
+    
+  - id: warning-text
+    element: p
+    variants: [danger]
+    
+  - id: instruction-text
+    element: p
+    
+  - id: custom-content
+    element: div
+
+  # ============================================
+  # CONFIG COMPONENTS
+  # ============================================
+  
+  - id: config-input
+    element: input
+    states: [default, focus, error]
+
+# ============================================
+# VALIDATION RULES
+# ============================================
+# 
+# Validation rules have been extracted to a dedicated file:
+# → src/design-system/validation/validation.yaml
+#
+# The validation file includes:
+# - Layout nesting rules
+# - Required zones per pattern
+# - Mutually exclusive constraints
+# - 25 structured validation rules with severity levels
+# - Autofix hints for AI regeneration
+#

@@ -1,0 +1,438 @@
+================================================================================
+STRUCTURAL ANALYSIS OF LEGACY CRM UI SCREENS
+================================================================================
+
+Analysis Date: 2026-01-25
+Total Screen Files Analyzed: ~330+ PNG files
+Source Directory: ./src/components/Screens/
+
+================================================================================
+SCREEN GROUPS BY STRUCTURAL SIMILARITY
+================================================================================
+
+------------------------------------------------------------------------------
+GROUP A: LIST VIEW WITH SIDEBAR NAVIGATION
+------------------------------------------------------------------------------
+Screens: ~120 screens
+File Series:
+  - Auctions 01-22
+  - Daily Rewards 01-12
+  - Daily Quests 01-07
+  - Legal Documents 01-27
+  - Pricing Templates 01-29
+  - Vector Configuration 01-27
+  - Games Campaigns 01-13
+  - Opt-in Configs 01-18
+  - Categories 01
+  - Providers 01-02
+
+Structure:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ [Logo] Application Name                           [Icons] [User Avatar] │
+  ├──────────────┬──────────────────────────────────────────────────────────┤
+  │              │ Page Title                    [Search] [Actions] [+Create]│
+  │   SIDEBAR    ├──────────────────────────────────────────────────────────┤
+  │              │ [Filter Dropdowns]              [Status Tabs: All/Live/etc]│
+  │   - Menu     ├──────────────────────────────────────────────────────────┤
+  │   - Groups   │ Table Header: [☐] Col1  Col2  Col3  ...  Actions         │
+  │   - Items    ├──────────────────────────────────────────────────────────┤
+  │   - Submenus │ Row: [☐] [Toggle] Data Data Data ... [Edit][Copy][Del]   │
+  │              │ Row: [☐] [Toggle] Data Data Data ... [Edit][Copy][Del]   │
+  │              │ ...                                                       │
+  │              ├──────────────────────────────────────────────────────────┤
+  │ [← Back]     │ 1-N of M        [Rows/page ▼] [Page N] [◀ ▶]             │
+  └──────────────┴──────────────────────────────────────────────────────────┘
+
+Common UI Blocks:
+  - Left sidebar (fixed width ~236px)
+    - Logo/app name at top
+    - Menu groups with icons
+    - Expandable submenu items
+    - Active item highlight
+    - Back link at bottom
+  - Top bar with user controls
+  - Page header with title
+  - Filter row (dropdowns, tabs, search)
+  - Data table with:
+    - Checkbox column for selection
+    - Toggle column for status
+    - Text columns with copy icons
+    - Date columns
+    - User/author columns (chips/avatars)
+    - Action buttons column (edit, copy, delete)
+  - Pagination footer
+
+Variations:
+  - Some have status tabs (All/Running/Finished/Drafts)
+  - Some have additional action buttons (Priority, Filter icon)
+  - Some have toast notifications (top-right)
+  - Column configurations vary by data type
+
+
+------------------------------------------------------------------------------
+GROUP B: EDIT/DETAIL PAGE WITH RIGHT SIDEBAR
+------------------------------------------------------------------------------
+Screens: ~80 screens
+File Series:
+  - MOS Campaigns 01-37
+  - Promo 01-37
+  - Bottom Sheet 01-16
+  - Jackpot Drop 01-30
+  - Lucky Store 01-13
+  - Manage Free Spins 01-06
+  - Ribbons 01-10
+  - VIP Store - Ribbons 01-07
+
+Structure:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ [Logo] Application Name                           [Icons] [User Avatar] │
+  ├──────────────┬──────────────────────────────────────────────────────────┤
+  │              │ [←] Edit {Entity}       [Save Changes] [Save & Close ✓]  │
+  │   SIDEBAR    ├────────────────────────────────────┬─────────────────────┤
+  │              │                                    │ {Entity} Status [●] │
+  │   - Menu     │   MAIN CONTENT AREA               ├─────────────────────┤
+  │   - Groups   │                                    │ Details Section     │
+  │   - Items    │   - Form sections                  │   - Title*          │
+  │   - Submenus │   - Input fields                   │   - ID (auto)       │
+  │              │   - Upload areas                   │   - Description     │
+  │              │   - Preview sections               ├─────────────────────┤
+  │              │   - Collapsible panels             │ Audience Section    │
+  │              │                                    │   - Dropdown        │
+  │              │                                    ├─────────────────────┤
+  │              │                                    │ Schedule Section    │
+  │              │                                    │   - Start Date      │
+  │ [← Back]     │                                    │   - End Date        │
+  │              │                                    ├─────────────────────┤
+  │              │                                    │ [Delete] button     │
+  └──────────────┴────────────────────────────────────┴─────────────────────┘
+
+Common UI Blocks:
+  - Same left sidebar as Group A
+  - Header with:
+    - Back arrow button
+    - Page title (Create/Edit {Entity})
+    - Action buttons (Save Changes, Save & Close)
+  - Main content area (scrollable):
+    - Form sections with titles
+    - Input fields (text, number, select)
+    - Toggle switches
+    - Upload/image areas
+    - Collapsible/expandable panels
+    - Preview components
+  - Right sidebar (~330px):
+    - Status toggle section
+    - Details section (Title, ID, Comments)
+    - Audience selection
+    - Schedule section (dates/times)
+    - Delete button at bottom
+
+Variations:
+  - Some have tabs in header (subsections)
+  - Some have + Add buttons for list items
+  - Some have drag handles for reordering
+  - Some have inline preview cards
+
+
+------------------------------------------------------------------------------
+GROUP C: BUILDER/CONFIGURATION WITH CARD GRID
+------------------------------------------------------------------------------
+Screens: ~40 screens
+File Series:
+  - Auction Creation 01-16
+  - Cold Start Emilator 01-17
+  - MOS Campaigns (subset with card grids)
+
+Structure:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ [Logo] Application Name                           [Icons] [User Avatar] │
+  ├──────────────┬──────────────────────────────────────────────────────────┤
+  │              │ [←] Create {Entity}      [Actions...] [Save & Close ✓]   │
+  │   SIDEBAR    ├────────────────────────────────────┬─────────────────────┤
+  │              │ [Tabs: Tab1 | Tab2]                │ Status [Toggle]     │
+  │   - Menu     ├────────────────────────────────────┼─────────────────────┤
+  │              │ LEFT PANEL                         │ RIGHT SIDEBAR       │
+  │              │ ┌───────┐ ┌───────┐ ┌───────┐     │                     │
+  │              │ │ Card  │ │ Card  │ │ Card  │     │ Details             │
+  │              │ │ [img] │ │ [img] │ │ [img] │     │  - Fields           │
+  │              │ │ Title │ │ Title │ │ Title │     │                     │
+  │              │ └───────┘ └───────┘ └───────┘     │ Configuration       │
+  │              │ ┌───────┐ ┌───────┐ ┌───────┐     │  - Options          │
+  │              │ │ Card  │ │ Card  │ │ Card  │     │                     │
+  │              │ └───────┘ └───────┘ └───────┘     │ Schedule            │
+  │              ├────────────────────────────────────┤  - Dates            │
+  │ [← Back]     │ [+ Add Selected] [Collapse]        │                     │
+  └──────────────┴────────────────────────────────────┴─────────────────────┘
+
+Common UI Blocks:
+  - Same left sidebar as Group A
+  - Same header pattern as Group B
+  - Left/center panel with:
+    - Tab navigation
+    - Search/filter
+    - Card grid (selectable items)
+    - Multi-select panel at bottom
+  - Right sidebar (same as Group B)
+  - Card items show:
+    - Image/icon
+    - Title
+    - Metadata (counts, values)
+    - Selection state
+
+Variations:
+  - Some have drag-and-drop lineup section
+  - Some have nested category groups
+  - Some have quantity controls (+/-)
+
+
+------------------------------------------------------------------------------
+GROUP D: MODAL DIALOGS (OVERLAID)
+------------------------------------------------------------------------------
+Screens: ~30 screens (appears across multiple series)
+Visible in:
+  - Opt-in Configs 01 (delete modal)
+  - MOS Campaigns 10 (delete modal)
+  - Promo 01 (delete modal)
+  - Bottom Sheet 01 (add modal)
+
+Structure - Confirmation Modal:
+  ┌───────────────────────────────────────┐
+  │                                       │
+  │  {Action} {Entity}?                   │
+  │                                       │
+  │  Are you sure you want to {action}    │
+  │  {entity}? This action can not be     │
+  │  undone.                              │
+  │                                       │
+  │  [{Action}]  [Cancel]                 │
+  │                                       │
+  └───────────────────────────────────────┘
+
+Structure - Input Modal:
+  ┌───────────────────────────────────────┐
+  │  {Modal Title}                        │
+  │                                       │
+  │  Description text...                  │
+  │                                       │
+  │  Label                                │
+  │  [Input field                     ]   │
+  │                                       │
+  │  [Primary Action]  [Cancel]           │
+  └───────────────────────────────────────┘
+
+Common UI Blocks:
+  - Overlay backdrop (semi-transparent)
+  - Centered modal container
+  - Title text
+  - Description/body text
+  - Optional input field(s)
+  - Action buttons (primary + secondary)
+
+Modal Sizes:
+  - Small (~200px): Simple confirmations
+  - Medium (~400px): Confirmations with input
+  - Large (~600px+): Complex forms
+
+
+------------------------------------------------------------------------------
+GROUP E: SELECTION/PICKER PANELS
+------------------------------------------------------------------------------
+Screens: ~25 screens
+File Series:
+  - Resellers Manager 01-18 (selection list)
+  - Bottom Sheet 01 (Add Campaign modal)
+  - Jackpot Drop (Configure Gifts modal)
+  - Ribbons (Priority Settings modal)
+
+Structure:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Panel Title                                   Selected (N)              │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ [Filter ▼] [Filter ▼] [Filter ▼]                     [Search...] [↻]   │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ Column Headers: [☐] Column1 | Column2 | Column3 | ...                  │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ [☑] Row data...                                                         │
+  │ [☐] Row data...                                                         │
+  │ [☑] Row data...                                                         │
+  │ ...                                                                     │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ 1-N of M                    [Page ▼] [◀ ▶]                             │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ [Cancel]                                            [Add Items (N)]     │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+Common UI Blocks:
+  - Panel header with title and selected count
+  - Filter row with dropdowns
+  - Search input with refresh
+  - Selectable table with checkboxes
+  - Pagination
+  - Footer with Cancel and Add buttons
+
+
+------------------------------------------------------------------------------
+GROUP F: PREVIEW/EMULATOR OVERLAY
+------------------------------------------------------------------------------
+Screens: ~20 screens
+File Series:
+  - Cold Start Emilator 01-17
+  - MOS Campaigns 01 (with phone preview)
+  - Auction Creation 01 (with preview)
+
+Structure:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                                                          [×] Close      │
+  │                                                                         │
+  │                    ┌───────────────┐        Configuration Panel         │
+  │                    │ ┌───────────┐ │        ─────────────────────       │
+  │                    │ │  Phone    │ │        Label                       │
+  │                    │ │  Screen   │ │        [Input          ]           │
+  │                    │ │  Preview  │ │                                    │
+  │                    │ │           │ │        Label                       │
+  │                    │ │           │ │        [Dropdown      ▼]           │
+  │                    │ └───────────┘ │                                    │
+  │                    │ [Bottom Nav]  │        Section Title               │
+  │                    └───────────────┘        [List of items]             │
+  │                                                                         │
+  │                 [Tab] [Tab] [Page Dots]                                 │
+  │                                                                         │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+Common UI Blocks:
+  - Full-screen or large overlay
+  - Close button (X) top-right
+  - Device mockup (phone frame)
+  - Preview content inside device
+  - Configuration sidebar
+  - Navigation controls (tabs, pagination)
+
+
+------------------------------------------------------------------------------
+GROUP G: PRIORITY/ORDERING LISTS
+------------------------------------------------------------------------------
+Screens: ~15 screens
+File Series:
+  - Priority Settings 01-10
+  - Ribbons 01-10 (priority ordering)
+  - Audience Priority 01-02
+
+Structure:
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │ Priority Settings: {Entity Type}                                       │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ [All] [Live] [Drafts]                                                   │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ Headers: [≡] Title | Preview | Audience | Date | Actions               │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ [≡] [●] Title1     [Badge]   Audience1   Date1   [↓ Bottom] [↑ Top]    │
+  │ [≡] [○] Title2     [Badge]   Audience2   Date2   [↓ Bottom] [↑ Top]    │
+  │ [≡] [●] Title3     [Badge]   Audience3   Date3   [↓ Bottom] [↑ Top]    │
+  │ ...                                                                     │
+  ├─────────────────────────────────────────────────────────────────────────┤
+  │ [Cancel]                                            [✓ Save & Close]    │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+Common UI Blocks:
+  - Status tabs (All/Live/Drafts)
+  - Orderable list with:
+    - Drag handle (≡)
+    - Toggle switch
+    - Content columns
+    - Order action buttons (To Bottom ↓ / To Top ↑)
+  - Footer with Cancel and Save buttons
+
+
+================================================================================
+SUMMARY TABLE
+================================================================================
+
+Group | Label                        | Screen Count | Key Identifier
+------+------------------------------+--------------+---------------------------
+  A   | List View + Sidebar          | ~120         | Data table with pagination
+  B   | Edit Page + Right Sidebar    | ~80          | Back arrow, Save & Close
+  C   | Builder with Card Grid       | ~40          | Card grid + right sidebar
+  D   | Modal Dialogs                | ~30          | Overlay, centered box
+  E   | Selection/Picker Panels      | ~25          | Checkbox list + Add button
+  F   | Preview/Emulator             | ~20          | Device mockup overlay
+  G   | Priority/Ordering Lists      | ~15          | Drag handles, order buttons
+
+================================================================================
+COMMON UI PATTERNS ACROSS ALL GROUPS
+================================================================================
+
+1. NAVIGATION
+   - Left sidebar always present (except modals)
+   - Logo/app name top-left
+   - User avatar top-right
+   - Expandable menu sections
+   - Active state highlighting (pink background)
+   - Back link at sidebar bottom
+
+2. PAGE HEADERS
+   - Title on left
+   - Action buttons on right
+   - Back arrow for detail/edit pages
+
+3. DATA DISPLAY
+   - Tables for list data
+   - Cards for visual content
+   - Forms for editable content
+
+4. INTERACTIVE ELEMENTS
+   - Toggle switches for on/off states
+   - Checkboxes for selection
+   - Dropdowns for filtering
+   - Search inputs
+   - Copy icons next to IDs
+
+5. ACTION PATTERNS
+   - Create button (pink, "+ Create")
+   - Edit (pencil icon)
+   - Copy/Duplicate (copy icon)
+   - Delete (trash icon, red)
+   - Save Changes (outline button)
+   - Save & Close (pink, filled)
+
+6. FEEDBACK
+   - Toast notifications (top-right)
+   - Delete confirmation modals
+   - Status badges/chips
+
+================================================================================
+FILE COUNT BY SERIES
+================================================================================
+
+Auction Creation:       16 files
+Auctions:              22 files
+Audience Priority:      2 files
+Bottom Sheet:          16 files
+Categories:             1 file
+Cold Start Emilator:   17 files
+Daily Quests:           7 files
+Daily Rewards:         12 files
+Games:                  1 file
+Games Campaigns:       13 files
+Jackpot Drop:          30 files
+Landing Pages:          3 files
+Legal Documents:       27 files
+Loyalty Offer:          3 files
+Lucky Store:           13 files
+Manage Free Spins:      6 files
+MOS Campaigns:         37 files
+Opt-in Configs:        18 files
+Pricing Templates:     29 files
+Priority Settings:     10 files
+Promo:                 37 files
+Providers:              2 files
+Resellers Manager:     18 files
+Ribbons:               10 files
+Tagged Configs:         5 files
+Vector Configuration:  27 files
+VIP Store - Ribbons:    7 files
+Agencies Tiers:         1 file
+
+TOTAL: ~330+ screens
+
+================================================================================
+END OF ANALYSIS
+================================================================================

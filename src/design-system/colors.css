@@ -1,0 +1,178 @@
+/**
+ * Design System CSS Variables - Tango Internal 2.0
+ * 
+ * Import this file in your global styles.
+ * Use CSS variables: var(--color-base-primary)
+ */
+
+:root {
+  /* ============================================
+     BASE COLORS - Light Theme (Default)
+     ============================================ */
+  --color-base-primary: #181a21;
+  --color-base-secondary: #848790;
+  --color-base-tertiary: #bfc1c5;
+  --color-base-stroke: #ebecee;
+  --color-base-surface-primary: #ffffff;
+  --color-base-surface-secondary: #f6f6f8;
+
+  /* ============================================
+     SEMANTIC COLORS - Danger
+     ============================================ */
+  --color-danger-10: #ffece8;
+  --color-danger-30: #ffc5b9;
+  --color-danger-50: #ff9f8a;
+  --color-danger-100: #ff3e14;
+
+  /* ============================================
+     SEMANTIC COLORS - Warning
+     ============================================ */
+  --color-warning-10: #fff6e7;
+  --color-warning-30: #ffe3b8;
+  --color-warning-50: #ffd088;
+  --color-warning-100: #ffa011;
+
+  /* ============================================
+     SEMANTIC COLORS - Success
+     ============================================ */
+  --color-success-10: #edf8eb;
+  --color-success-30: #c9e9c4;
+  --color-success-50: #a5db9d;
+  --color-success-100: #4bb73a;
+
+  /* ============================================
+     SEMANTIC COLORS - Info
+     ============================================ */
+  --color-info-10: #eef0ff;
+  --color-info-30: #ccd1ff;
+  --color-info-50: #aab3ff;
+  --color-info-100: #5466ff;
+
+  /* ============================================
+     DECORATIVE COLORS
+     ============================================ */
+  --color-flat-white: #ffffff;
+  --color-flat-black: #000000;
+  --color-brand-primary: #fc3d6b;
+  --color-brand-secondary: #aa54ff;
+  --color-on-bronze: #55372e;
+  --color-on-silver: #333f49;
+  --color-on-gold: #514125;
+
+  /* ============================================
+     GRADIENTS
+     ============================================ */
+  --gradient-brand-primary: linear-gradient(135deg, #fc3d6b 0%, #aa54ff 100%);
+  --gradient-bronze: linear-gradient(135deg, #cd7f32 0%, #8b4513 100%);
+  --gradient-silver: linear-gradient(135deg, #c0c0c0 0%, #808080 100%);
+  --gradient-gold: linear-gradient(135deg, #ffd700 0%, #daa520 100%);
+
+  /* ============================================
+     SHADERS (Overlays)
+     ============================================ */
+  --shader-black-64: rgba(0, 0, 0, 0.64);
+  --shader-black-24: rgba(0, 0, 0, 0.24);
+  --shader-black-16: rgba(0, 0, 0, 0.16);
+  --shader-black-8: rgba(0, 0, 0, 0.08);
+  --shader-white-64: rgba(255, 255, 255, 0.64);
+  --shader-white-24: rgba(255, 255, 255, 0.24);
+  --shader-white-16: rgba(255, 255, 255, 0.16);
+  --shader-white-8: rgba(255, 255, 255, 0.08);
+
+  /* ============================================
+     SPECIAL - Skeleton Loader
+     ============================================ */
+  --skeleton-from: #f6f6f8;
+  --skeleton-via: #ebecee;
+  --skeleton-to: #f6f6f8;
+
+  /* ============================================
+     SPECIAL - Bottom Gradient
+     ============================================ */
+  --gradient-bottom-from: rgba(255, 255, 255, 1);
+  --gradient-bottom-to: rgba(255, 255, 255, 0);
+}
+
+/* ============================================
+   DARK THEME
+   ============================================ */
+[data-theme="dark"],
+.dark {
+  /* Base Colors */
+  --color-base-primary: #fefefe;
+  --color-base-secondary: #9c9c9d;
+  --color-base-tertiary: #5f5f5f;
+  --color-base-stroke: #303030;
+  --color-base-surface-primary: #141414;
+  --color-base-surface-secondary: #1f1f1f;
+
+  /* Skeleton Loader */
+  --skeleton-from: #1f1f1f;
+  --skeleton-via: #303030;
+  --skeleton-to: #1f1f1f;
+
+  /* Bottom Gradient */
+  --gradient-bottom-from: rgba(20, 20, 20, 1);
+  --gradient-bottom-to: rgba(20, 20, 20, 0);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+/* Text Colors */
+.text-primary { color: var(--color-base-primary); }
+.text-secondary { color: var(--color-base-secondary); }
+.text-tertiary { color: var(--color-base-tertiary); }
+.text-danger { color: var(--color-danger-100); }
+.text-warning { color: var(--color-warning-100); }
+.text-success { color: var(--color-success-100); }
+.text-info { color: var(--color-info-100); }
+.text-brand-primary { color: var(--color-brand-primary); }
+.text-brand-secondary { color: var(--color-brand-secondary); }
+
+/* Background Colors */
+.bg-surface-primary { background-color: var(--color-base-surface-primary); }
+.bg-surface-secondary { background-color: var(--color-base-surface-secondary); }
+.bg-danger-10 { background-color: var(--color-danger-10); }
+.bg-danger-100 { background-color: var(--color-danger-100); }
+.bg-warning-10 { background-color: var(--color-warning-10); }
+.bg-warning-100 { background-color: var(--color-warning-100); }
+.bg-success-10 { background-color: var(--color-success-10); }
+.bg-success-100 { background-color: var(--color-success-100); }
+.bg-info-10 { background-color: var(--color-info-10); }
+.bg-info-100 { background-color: var(--color-info-100); }
+
+/* Border Colors */
+.border-stroke { border-color: var(--color-base-stroke); }
+.border-danger { border-color: var(--color-danger-100); }
+.border-warning { border-color: var(--color-warning-100); }
+.border-success { border-color: var(--color-success-100); }
+.border-info { border-color: var(--color-info-100); }
+
+/* Gradient Backgrounds */
+.bg-gradient-brand { background: var(--gradient-brand-primary); }
+.bg-gradient-bronze { background: var(--gradient-bronze); }
+.bg-gradient-silver { background: var(--gradient-silver); }
+.bg-gradient-gold { background: var(--gradient-gold); }
+
+/* Skeleton Animation */
+@keyframes skeleton-pulse {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton-from) 0%,
+    var(--skeleton-via) 50%,
+    var(--skeleton-to) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}

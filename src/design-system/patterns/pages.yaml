@@ -1,0 +1,210 @@
+# Page Patterns for Back Office UI
+# These patterns describe complete page structures
+
+version: "1.0"
+description: "Full page patterns extracted from back office screens"
+
+pages:
+  # List/table page pattern
+  list_page:
+    id: PP-001
+    name: "List Page"
+    description: "Standard page for displaying list of items in table format"
+    layout: LP-002
+    components:
+      header:
+        pattern: CP-004
+        title: "{Entity} List"
+      filters:
+        pattern: CP-001
+        filters:
+          - status_filter
+          - type_filter
+          - date_range_filter
+        actions:
+          - search
+          - create_button
+      table:
+        pattern: CP-002
+        columns:
+          - checkbox
+          - status_toggle
+          - title_with_copy
+          - id_with_copy
+          - updated_at
+          - updated_by
+          - created_at
+          - created_by
+          - actions
+        row_actions:
+          - edit
+          - duplicate
+          - delete
+      pagination:
+        show_count: true
+        rows_per_page: [10, 25, 50]
+        page_selector: true
+    examples:
+      - "Campaigns list"
+      - "Audiences list"
+      - "Gifts manager"
+      - "Special offers"
+
+  # Detail/edit page pattern
+  detail_page:
+    id: PP-002
+    name: "Detail Page"
+    description: "Page for viewing/editing single entity"
+    layout: LP-003
+    components:
+      header:
+        back_button: true
+        title: "{Entity Name}"
+        actions:
+          - "Full Screen"
+          - "Priority"
+          - "Save Changes"
+          - "Save & Close" (primary)
+      main_content:
+        sections:
+          - title: "Configuration"
+            pattern: CP-003
+            fields: [name, description, settings]
+          - title: "Content"
+            component: custom (varies by entity)
+      right_sidebar:
+        sections:
+          - title: "Status"
+            pattern: CP-006
+          - title: "Details"
+            pattern: CP-003
+            fields: [title, id, comments]
+          - title: "Schedule"
+            fields: [start_date, end_date]
+            hints: true
+          - actions:
+            - "Save Campaign" (primary, full-width)
+    examples:
+      - "Campaign editor"
+      - "Gift drawer configuration"
+      - "Special offer settings"
+
+  # Configuration/builder page
+  builder_page:
+    id: PP-003
+    name: "Builder Page"
+    description: "Page for building/configuring complex entities"
+    layout: LP-003
+    components:
+      header:
+        back_button: true
+        title: "Create {Entity}"
+        tabs: ["Full Screen", "Priority", "Save Changes", "Save & Close"]
+      left_panel:
+        title: "Available Items"
+        tabs: ["Tab 1", "Tab 2"]
+        search: true
+        filter: true
+        content:
+          pattern: CP-005
+          selection: multi
+        actions:
+          pattern: CP-008
+      right_panel:
+        title: "Configuration"
+        sections:
+          - header:
+              toggle: true
+              input: title
+          - categories:
+              draggable: true
+              collapsible: true
+              items:
+                - pattern: CP-005
+                  selection: multi
+        actions:
+          - "Add Selected"
+          - "Collapse"
+      sidebar:
+        sections:
+          - status
+          - details
+          - schedule
+          - save_action
+    examples:
+      - "Gift drawer builder"
+      - "Campaign builder"
+      - "Landing page builder"
+
+  # Dashboard page
+  dashboard_page:
+    id: PP-004
+    name: "Dashboard Page"
+    description: "Overview page with statistics and quick actions"
+    layout: standard_page
+    components:
+      header:
+        title: "Dashboard"
+        date_range_selector: true
+      content:
+        layout: grid
+        sections:
+          - type: stats_cards
+            columns: 4
+            items: [stat_card, stat_card, stat_card, stat_card]
+          - type: charts
+            columns: 2
+            items: [chart, chart]
+          - type: recent_activity
+            component: table
+            limit: 5
+
+# Page generation rules
+rules:
+  navigation:
+    - "All pages accessible via sidebar"
+    - "Breadcrumbs for nested pages"
+    - "Back button on detail/edit pages"
+  
+  data_display:
+    - "Tables for list data"
+    - "Cards for visual content (images, icons)"
+    - "Forms for editable content"
+  
+  actions:
+    - "Primary action is rightmost"
+    - "Destructive actions require confirmation"
+    - "Save actions show success notification"
+  
+  responsiveness:
+    - "Sidebar collapses on tablet"
+    - "Tables scroll horizontally on mobile"
+    - "Cards stack vertically on mobile"
+
+# Page templates for AI generation
+templates:
+  list:
+    prompt: "Generate a list page for {entity} with columns: {columns}"
+    structure: PP-001
+    variables:
+      - entity: string
+      - columns: array
+      - filters: array (optional)
+      - actions: array (optional)
+  
+  detail:
+    prompt: "Generate a detail page for {entity} with fields: {fields}"
+    structure: PP-002
+    variables:
+      - entity: string
+      - fields: array
+      - sidebar_fields: array (optional)
+      - actions: array (optional)
+  
+  builder:
+    prompt: "Generate a builder page for {entity} with available items and configuration"
+    structure: PP-003
+    variables:
+      - entity: string
+      - available_items: array
+      - configuration_sections: array

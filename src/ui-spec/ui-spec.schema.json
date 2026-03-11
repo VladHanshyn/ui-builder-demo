@@ -1,0 +1,424 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://crm-system.internal/ui-spec/v1/schema",
+  "title": "UI Spec Schema",
+  "description": "Machine-readable specification for generating CRM Back Office interfaces",
+  "type": "object",
+  "required": ["version", "id", "root_pattern", "patterns_used", "zones"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "Schema version (e.g., '1.0')"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Unique identifier for this UI spec"
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-readable title for the page/component"
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional description of the UI purpose"
+    },
+    "root_pattern": {
+      "$ref": "#/$defs/patternId",
+      "description": "The main pattern used for this UI (P-01..P-15)"
+    },
+    "patterns_used": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/patternId"
+      },
+      "uniqueItems": true,
+      "description": "All patterns referenced in this spec"
+    },
+    "zones": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/zoneSpec"
+      },
+      "description": "Zone configurations keyed by zone id (zone-a, zone-b, etc.)"
+    },
+    "datasources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/datasource"
+      },
+      "description": "Data sources for dynamic content"
+    },
+    "permissions": {
+      "$ref": "#/$defs/permissions",
+      "description": "Permission rules for gating components/actions"
+    },
+    "overlays": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/overlaySpec"
+      },
+      "description": "Overlay/modal configurations"
+    }
+  },
+  "$defs": {
+    "patternId": {
+      "type": "string",
+      "enum": [
+        "P-01", "P-02", "P-03", "P-04", "P-05",
+        "P-06", "P-07", "P-08", "P-09", "P-10",
+        "P-11", "P-12", "P-13", "P-14", "P-15"
+      ],
+      "description": "Valid pattern identifiers"
+    },
+    "zoneId": {
+      "type": "string",
+      "pattern": "^zone-[a-z]$",
+      "description": "Zone identifier (zone-a through zone-f)"
+    },
+    "zoneSpec": {
+      "type": "object",
+      "required": ["pattern_id", "components"],
+      "additionalProperties": false,
+      "properties": {
+        "pattern_id": {
+          "$ref": "#/$defs/patternId",
+          "description": "Which pattern owns this zone"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/componentSpec"
+          },
+          "description": "Components placed in this zone"
+        }
+      }
+    },
+    "componentSpec": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Component ID from component_definitions"
+        },
+        "key": {
+          "type": "string",
+          "description": "Unique key for this component instance"
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Component-specific properties"
+        },
+        "data_binding": {
+          "$ref": "#/$defs/dataBinding",
+          "description": "Reference to a datasource"
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/actionSpec"
+          },
+          "description": "Actions triggered by this component"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/componentSpec"
+          },
+          "description": "Nested child components"
+        },
+        "condition": {
+          "$ref": "#/$defs/conditionSpec",
+          "description": "Conditional rendering rules"
+        }
+      }
+    },
+    "dataBinding": {
+      "type": "object",
+      "required": ["source"],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "Datasource ID"
+        },
+        "path": {
+          "type": "string",
+          "description": "JSONPath or dot notation to data field"
+        },
+        "transform": {
+          "type": "string",
+          "description": "Optional transform function name"
+        }
+      }
+    },
+    "actionSpec": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique action identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["navigate", "api_call", "open_overlay", "close_overlay", "submit", "select", "delete", "custom"],
+          "description": "Action type"
+        },
+        "target": {
+          "type": "string",
+          "description": "Target (route, overlay id, endpoint)"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          "description": "HTTP method for api_call"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Data to send with action"
+        },
+        "confirm": {
+          "type": "string",
+          "description": "Overlay ID to show before executing (for destructive actions)"
+        },
+        "requires_permission": {
+          "type": "string",
+          "description": "Permission key required to execute this action"
+        },
+        "on_success": {
+          "$ref": "#/$defs/actionSpec",
+          "description": "Action to execute on success"
+        },
+        "on_error": {
+          "$ref": "#/$defs/actionSpec",
+          "description": "Action to execute on error"
+        }
+      }
+    },
+    "datasource": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique datasource identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["rest", "graphql", "static"],
+          "description": "Datasource type"
+        },
+        "endpoint": {
+          "type": "string",
+          "description": "API endpoint URL (for rest/graphql)"
+        },
+        "query": {
+          "type": "string",
+          "description": "GraphQL query (for graphql type)"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          "default": "GET",
+          "description": "HTTP method"
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Query parameters or variables"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "HTTP headers"
+        },
+        "response_mapping": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Map response fields to local names"
+        },
+        "static_data": {
+          "type": ["array", "object"],
+          "description": "Static data (for static type)"
+        },
+        "refresh_interval": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Auto-refresh interval in seconds (0 = no refresh)"
+        },
+        "pagination": {
+          "$ref": "#/$defs/paginationConfig",
+          "description": "Pagination configuration"
+        }
+      }
+    },
+    "paginationConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "page_size": {
+          "type": "integer",
+          "default": 25
+        },
+        "page_param": {
+          "type": "string",
+          "default": "page"
+        },
+        "size_param": {
+          "type": "string",
+          "default": "limit"
+        },
+        "total_path": {
+          "type": "string",
+          "description": "Path to total count in response"
+        },
+        "items_path": {
+          "type": "string",
+          "description": "Path to items array in response"
+        }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_roles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Roles required to access this UI"
+        },
+        "component_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/permissionRule"
+          },
+          "description": "Per-component permission rules"
+        },
+        "action_rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/permissionRule"
+          },
+          "description": "Per-action permission rules"
+        }
+      }
+    },
+    "permissionRule": {
+      "type": "object",
+      "required": ["target", "permission"],
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "Component key or action ID"
+        },
+        "permission": {
+          "type": "string",
+          "description": "Required permission key"
+        },
+        "fallback": {
+          "type": "string",
+          "enum": ["hide", "disable", "redirect"],
+          "default": "hide",
+          "description": "What to do if permission denied"
+        }
+      }
+    },
+    "overlaySpec": {
+      "type": "object",
+      "required": ["id", "pattern_id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique overlay identifier"
+        },
+        "pattern_id": {
+          "type": "string",
+          "enum": ["P-05", "P-06", "P-07", "P-08"],
+          "description": "Overlay pattern (P-05 through P-08)"
+        },
+        "title": {
+          "type": "string",
+          "description": "Overlay title"
+        },
+        "variant": {
+          "type": "string",
+          "enum": ["default", "danger", "info"],
+          "description": "Visual variant"
+        },
+        "size": {
+          "type": "string",
+          "enum": ["small", "medium", "large"],
+          "default": "medium"
+        },
+        "zones": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/zoneSpec"
+          },
+          "description": "Overlay zone configurations"
+        },
+        "open_triggers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Action IDs that open this overlay"
+        },
+        "close_triggers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Action IDs that close this overlay"
+        },
+        "on_confirm": {
+          "$ref": "#/$defs/actionSpec",
+          "description": "Action to execute on confirm"
+        },
+        "on_cancel": {
+          "$ref": "#/$defs/actionSpec",
+          "description": "Action to execute on cancel"
+        }
+      }
+    },
+    "conditionSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "if": {
+          "type": "string",
+          "description": "Condition expression"
+        },
+        "show": {
+          "type": "boolean",
+          "description": "Show if condition is true"
+        },
+        "permission": {
+          "type": "string",
+          "description": "Required permission"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,683 @@
+# Validation Rules for CRM UI Generator
+# Machine-readable validation schema for interface patterns
+# Version: 1.0
+# Last updated: 2026-01-25
+
+version: "1.0"
+
+meta:
+  owner: "Design Systems Team"
+  scope: "CRM Back Office UI"
+  source_files:
+    - "../patterns/patterns.yaml"
+    - "../patterns/components.yaml"
+  description: |
+    Validation rules for AI-generated interfaces.
+    Rules enforce structural integrity, consistency, and accessibility.
+
+# ============================================
+# SEVERITY LEVELS
+# ============================================
+
+severity_levels:
+  error:
+    description: "Must be fixed. Blocks generation or causes broken UI."
+    action: "Regenerate with autofix hint"
+    
+  warning:
+    description: "Should be fixed. May cause UX issues or inconsistencies."
+    action: "Flag for review, suggest fix"
+    
+  info:
+    description: "Recommendation. Best practice not strictly required."
+    action: "Log and continue"
+
+# ============================================
+# EXTRACTED FROM patterns.yaml
+# Source of truth for nesting and zone requirements
+# ============================================
+
+layout_nesting:
+  P-01:
+    can_contain: [P-02, P-03]
+    level: root
+  P-02:
+    can_contain: [P-11, P-12, P-13, P-15]
+    level: page
+  P-03:
+    can_contain: [P-04, P-09, P-10, P-14]
+    level: page
+  overlays:
+    patterns: [P-05, P-06, P-07, P-08]
+    can_appear_on: any
+
+required_zones:
+  P-02:
+    required: [zone-c, zone-d, zone-e]
+    optional: [zone-a, zone-b]
+  P-03:
+    required: [zone-a, zone-b, zone-c]
+    optional: []
+  P-07:
+    required: [zone-a, zone-d, zone-f]
+    optional: [zone-b, zone-c, zone-e]
+
+mutually_exclusive:
+  page_level:
+    - [P-02, P-03]
+  overlays:
+    - [P-05, P-06]
+
+# ============================================
+# VALIDATION RULES
+# ============================================
+
+rules:
+
+  # ------------------------------------------
+  # CATEGORY: STRUCTURE
+  # ------------------------------------------
+
+  - id: STRUCT-001
+    title: "Required zones must exist"
+    severity: error
+    category: structure
+    applies_to:
+      patterns: [P-02, P-03, P-07]
+    when:
+      pattern_used: true
+    assert:
+      zones_present: "${required_zones[pattern_id].required}"
+    message: "Pattern ${pattern_id} is missing required zones: ${missing_zones}"
+    autofix:
+      suggestion: "Add missing zones to the layout"
+      regenerate_hint: |
+        Ensure pattern ${pattern_id} includes all required zones:
+        ${required_zones[pattern_id].required}
+
+  - id: STRUCT-002
+    title: "Components must be allowed in zone"
+    severity: error
+    category: structure
+    applies_to:
+      patterns: [P-01, P-02, P-03, P-04, P-07, P-08, P-09]
+    when:
+      component_in_zone: true
+    assert:
+      component_id: "in ${zone.allowed_components}"
+    message: "Component '${component_id}' is not allowed in zone '${zone_id}' of pattern ${pattern_id}"
+    autofix:
+      suggestion: "Move component to correct zone or remove it"
+      regenerate_hint: |
+        Zone ${zone_id} in ${pattern_id} only allows: ${zone.allowed_components}.
+        Move '${component_id}' to an appropriate zone.
+
+  - id: STRUCT-003
+    title: "Table requires at least one data column"
+    severity: error
+    category: structure
+    applies_to:
+      patterns: [P-02]
+      zones: [zone-c, zone-d]
+    when:
+      pattern_used: "P-02"
+    assert:
+      column_count: ">= 1"
+      column_type: "data"
+    message: "P-02 Tabular Data View requires at least 1 data column in table-header (zone-c)"
+    autofix:
+      suggestion: "Add at least one column-header or sortable-column-header"
+      regenerate_hint: |
+        Add data columns to zone-c (table-header).
+        Allowed: column-header, sortable-column-header
+
+  - id: STRUCT-004
+    title: "Actions column must be rightmost"
+    severity: error
+    category: structure
+    applies_to:
+      patterns: [P-02]
+      zones: [zone-c, zone-d]
+      components: [action-button-group]
+    when:
+      component_present: "action-button-group"
+    assert:
+      column_position: "last"
+    message: "action-button-group column must be positioned rightmost in P-02 table"
+    autofix:
+      suggestion: "Move actions column to the last position"
+      regenerate_hint: |
+        In P-02, action-button-group must be the last column.
+        Reorder columns: [...data_columns, action-button-group]
+
+  - id: STRUCT-005
+    title: "Checkbox column must be leftmost"
+    severity: error
+    category: structure
+    applies_to:
+      patterns: [P-02]
+      zones: [zone-c]
+      components: [checkbox-column]
+    when:
+      component_present: "checkbox-column"
+    assert:
+      column_position: "first"
+    message: "checkbox-column must be positioned leftmost in P-02 table header"
+    autofix:
+      suggestion: "Move checkbox column to the first position"
+      regenerate_hint: |
+        In P-02, checkbox-column must be the first column.
+        Reorder columns: [checkbox-column, ...data_columns, action-button-group?]
+
+  - id: STRUCT-006
+    title: "Checkbox selection requires bulk action bar"
+    severity: warning
+    category: structure
+    applies_to:
+      patterns: [P-02]
+      components: [checkbox-column, checkbox-cell]
+    when:
+      component_present: "checkbox-column"
+    assert:
+      sibling_pattern_present: "P-15"
+    message: "P-02 with checkbox selection should include P-15 (Multi-Select Action Bar) for bulk actions"
+    autofix:
+      suggestion: "Add P-15 Multi-Select Action Bar component"
+      regenerate_hint: |
+        When P-02 has checkbox-column, include P-15 for bulk operations.
+        P-15 should appear when items are selected.
+
+  - id: STRUCT-007
+    title: "Card grid requires consistent sizing"
+    severity: warning
+    category: structure
+    applies_to:
+      patterns: [P-04]
+      zones: [zone-b]
+    when:
+      pattern_used: "P-04"
+    assert:
+      card_sizing: "consistent"
+    message: "Cards in P-04 grid should have consistent sizing"
+    autofix:
+      suggestion: "Apply uniform width/height to all cards"
+      regenerate_hint: |
+        In P-04 Card Selection Grid, all selectable-card components 
+        must have matching dimensions.
+
+  # ------------------------------------------
+  # CATEGORY: NESTING
+  # ------------------------------------------
+
+  - id: NEST-001
+    title: "Page patterns must be inside shell"
+    severity: error
+    category: nesting
+    applies_to:
+      patterns: [P-02, P-03]
+    when:
+      pattern_level: "page"
+    assert:
+      parent_pattern: "P-01"
+    message: "Page-level pattern ${pattern_id} must be contained within P-01 (Sidebar Navigation Shell)"
+    autofix:
+      suggestion: "Wrap page pattern with P-01 shell"
+      regenerate_hint: |
+        Structure must be: P-01 > zone-c > ${pattern_id}
+        P-01 provides the navigation shell.
+
+  - id: NEST-002
+    title: "Mutually exclusive page patterns"
+    severity: error
+    category: nesting
+    applies_to:
+      patterns: [P-02, P-03]
+    when:
+      sibling_patterns: ["P-02", "P-03"]
+    assert:
+      only_one: true
+    message: "P-02 (Tabular Data View) and P-03 (Detail Editor) cannot both be used as page-level patterns simultaneously"
+    autofix:
+      suggestion: "Use only one main page pattern"
+      regenerate_hint: |
+        Choose either P-02 (list view) or P-03 (detail view) as the 
+        main page pattern. Navigation between them uses routing.
+
+  - id: NEST-003
+    title: "Overlays can appear on any pattern"
+    severity: info
+    category: nesting
+    applies_to:
+      patterns: [P-05, P-06, P-07, P-08]
+    when:
+      pattern_type: "overlay"
+    assert:
+      parent_pattern: "any"
+    message: "Overlay patterns P-05..P-08 are valid on any base pattern"
+    autofix:
+      suggestion: null
+      regenerate_hint: null
+
+  - id: NEST-004
+    title: "Mutually exclusive overlays"
+    severity: error
+    category: nesting
+    applies_to:
+      patterns: [P-05, P-06]
+    when:
+      overlays_open: ["P-05", "P-06"]
+    assert:
+      max_simultaneous: 1
+    message: "P-05 (Confirmation Dialog) and P-06 (Input Dialog) cannot be open simultaneously"
+    autofix:
+      suggestion: "Close one overlay before opening another"
+      regenerate_hint: |
+        Only one of P-05 or P-06 can be visible at a time.
+        Implement overlay stack or sequential flow.
+
+  - id: NEST-005
+    title: "Component patterns must be in allowed parent zones"
+    severity: error
+    category: nesting
+    applies_to:
+      patterns: [P-04, P-09, P-10, P-11, P-12, P-13, P-14, P-15]
+    when:
+      pattern_level: "section"
+    assert:
+      parent_zone: "in ${allowed_parent_zones}"
+    message: "Section pattern ${pattern_id} placed in invalid parent zone"
+    autofix:
+      suggestion: "Move pattern to allowed zone"
+      regenerate_hint: |
+        Check layout_nesting for valid parent patterns.
+        P-02 can contain: P-11, P-12, P-13, P-15
+        P-03 can contain: P-04, P-09, P-10, P-14
+
+  # ------------------------------------------
+  # CATEGORY: CONSISTENCY
+  # ------------------------------------------
+
+  - id: CONS-001
+    title: "Maximum one primary button per screen"
+    severity: error
+    category: consistency
+    applies_to:
+      components: [primary-button]
+    when:
+      component_count: "primary-button"
+    assert:
+      count: "<= 1"
+    message: "Screen contains ${count} primary buttons. Maximum 1 primary button allowed per screen."
+    autofix:
+      suggestion: "Change extra primary buttons to secondary variant"
+      regenerate_hint: |
+        Only one primary-button per screen.
+        Use secondary-button or tertiary variants for other actions.
+
+  - id: CONS-002
+    title: "Action button group max visible actions"
+    severity: warning
+    category: consistency
+    applies_to:
+      patterns: [P-13]
+      components: [icon-button]
+    when:
+      pattern_used: "P-13"
+    assert:
+      visible_actions: "<= 4"
+    message: "P-13 Action Button Group has ${count} visible actions. Maximum 4 recommended."
+    autofix:
+      suggestion: "Move extra actions to overflow menu"
+      regenerate_hint: |
+        P-13 should have max 4 visible icon-buttons.
+        Additional actions go in more-button > dropdown-menu.
+
+  - id: CONS-003
+    title: "Destructive actions require confirmation"
+    severity: error
+    category: consistency
+    applies_to:
+      components: [primary-button, icon-button]
+    when:
+      action_type: "destructive"
+      # detected by: variant=danger, action=delete/remove/destroy
+    assert:
+      triggers_overlay: "P-05"
+      overlay_variant: "danger"
+    message: "Destructive action '${action_name}' must trigger P-05 Confirmation Dialog with danger variant"
+    autofix:
+      suggestion: "Add confirmation dialog before destructive action"
+      regenerate_hint: |
+        Destructive actions (delete, remove, destroy) must:
+        1. Trigger P-05 Confirmation Dialog
+        2. Use variant: danger
+        3. Only execute after user confirms
+
+  - id: CONS-004
+    title: "Save actions should be grouped"
+    severity: info
+    category: consistency
+    applies_to:
+      patterns: [P-03]
+      zones: [zone-a]
+    when:
+      component_present: "save-button"
+    assert:
+      sibling_component: "save-close-button"
+    message: "Consider including both save-button and save-close-button in P-03 header"
+    autofix:
+      suggestion: "Add save-close-button option"
+      regenerate_hint: |
+        P-03 Detail Editor typically has both:
+        - save-button: Save and stay
+        - save-close-button: Save and navigate back
+
+  - id: CONS-005
+    title: "Delete button position in properties panel"
+    severity: warning
+    category: consistency
+    applies_to:
+      patterns: [P-03]
+      zones: [zone-c]
+      components: [delete-button]
+    when:
+      component_present: "delete-button"
+    assert:
+      position: "bottom"
+    message: "delete-button should be at the bottom of P-03 properties panel (zone-c)"
+    autofix:
+      suggestion: "Move delete button to bottom of zone-c"
+      regenerate_hint: |
+        In P-03, delete-button goes at the bottom of zone-c (properties-panel).
+        Order: status-toggle, details, schedule, tags, delete-button
+
+  # ------------------------------------------
+  # CATEGORY: INTERACTION
+  # ------------------------------------------
+
+  - id: INTR-001
+    title: "Search input debounce required"
+    severity: info
+    category: interaction
+    applies_to:
+      patterns: [P-11]
+      components: [search-input]
+    when:
+      component_present: "search-input"
+    assert:
+      debounce_ms: ">= 300"
+    message: "search-input should have debounce of at least 300ms to prevent excessive API calls"
+    autofix:
+      suggestion: "Set debounce prop to 300ms"
+      regenerate_hint: |
+        SearchInput component should include:
+        debounceMs: 300
+
+  - id: INTR-002
+    title: "Bulk actions require multi-select enabled"
+    severity: error
+    category: interaction
+    applies_to:
+      patterns: [P-15]
+    when:
+      pattern_used: "P-15"
+    assert:
+      sibling_has: "multiSelect=true"
+    message: "P-15 Multi-Select Action Bar requires multiSelect enabled on data list/table"
+    autofix:
+      suggestion: "Enable multiSelect on associated data pattern"
+      regenerate_hint: |
+        P-15 requires checkbox selection in P-02 or P-07.
+        Ensure parent pattern has:
+        - checkbox-column (P-02)
+        - checkbox-header + checkbox-row (P-07)
+
+  - id: INTR-003
+    title: "Overlays must support ESC to close"
+    severity: error
+    category: interaction
+    applies_to:
+      patterns: [P-05, P-06, P-07, P-08]
+    when:
+      pattern_type: "overlay"
+    assert:
+      keyboard_handler: "Escape"
+      handler_action: "close"
+    message: "Overlay ${pattern_id} must close on Escape key press"
+    autofix:
+      suggestion: "Add onKeyDown handler for Escape key"
+      regenerate_hint: |
+        All overlay patterns require:
+        useEffect with keydown listener for 'Escape'
+        that calls onClose() callback.
+
+  - id: INTR-004
+    title: "Modal backdrop click behavior"
+    severity: warning
+    category: interaction
+    applies_to:
+      patterns: [P-05, P-06, P-07, P-08]
+    when:
+      pattern_type: "overlay"
+    assert:
+      backdrop_click: "closes"
+    message: "Overlay ${pattern_id} should close on backdrop click (unless data loss risk)"
+    autofix:
+      suggestion: "Add onClick handler on backdrop element"
+      regenerate_hint: |
+        Overlay backdrop should have onClick={onClose}
+        Exception: If form has unsaved changes, show confirmation first.
+
+  - id: INTR-005
+    title: "Filters apply immediately"
+    severity: info
+    category: interaction
+    applies_to:
+      patterns: [P-11]
+      components: [filter-dropdown]
+    when:
+      component_present: "filter-dropdown"
+    assert:
+      apply_mode: "immediate"
+    message: "Filter changes in P-11 should apply immediately without explicit 'Apply' button"
+    autofix:
+      suggestion: "Use onChange instead of form submission"
+      regenerate_hint: |
+        P-11 filters apply on selection change.
+        No 'Apply Filters' button needed.
+
+  - id: INTR-006
+    title: "Pagination controls required for large datasets"
+    severity: warning
+    category: interaction
+    applies_to:
+      patterns: [P-02]
+      zones: [zone-e]
+    when:
+      dataset_size_hint: "> 25"
+    assert:
+      component_present: "pagination-footer"
+    message: "P-02 with dataset > 25 items should include P-12 Pagination Footer"
+    autofix:
+      suggestion: "Add zone-e with pagination controls"
+      regenerate_hint: |
+        For datasets > 25 items, include zone-e with:
+        - count-info
+        - rows-per-page-selector
+        - prev-next-buttons
+
+  # ------------------------------------------
+  # CATEGORY: DATA & PERMISSIONS
+  # ------------------------------------------
+
+  - id: DATA-001
+    title: "Destructive actions require permission gating"
+    severity: warning
+    category: data
+    applies_to:
+      components: [delete-button]
+    when:
+      action_type: "destructive"
+    assert:
+      requires_permission: true
+      permission_check: "before render"
+    message: "Destructive action should check user permissions before rendering"
+    autofix:
+      suggestion: "Add permission guard around component"
+      regenerate_hint: |
+        Wrap destructive action buttons with permission check:
+        {hasPermission('delete') && <DeleteButton />}
+
+  - id: DATA-002
+    title: "Pagination required for unbounded datasets"
+    severity: info
+    category: data
+    applies_to:
+      patterns: [P-02, P-07]
+    when:
+      dataset_size: "unknown"
+    assert:
+      pagination_present: true
+    message: "Consider adding pagination when dataset size is unbounded or unknown"
+    autofix:
+      suggestion: "Include pagination component"
+      regenerate_hint: |
+        For API-driven data, always include pagination.
+        Use P-12 pattern for P-02, zone-e for P-07.
+
+  - id: DATA-003
+    title: "Selection state persistence across pages"
+    severity: warning
+    category: data
+    applies_to:
+      patterns: [P-07]
+    when:
+      pattern_used: "P-07"
+      has_pagination: true
+    assert:
+      selection_persistence: "cross-page"
+    message: "P-07 Selection List Panel should persist selections across pagination"
+    autofix:
+      suggestion: "Store selections in parent state, not local"
+      regenerate_hint: |
+        Selected items in P-07 must persist when paginating.
+        Store selectedIds in parent component state.
+
+  # ------------------------------------------
+  # CATEGORY: ACCESSIBILITY
+  # ------------------------------------------
+
+  - id: A11Y-001
+    title: "Overlays must trap focus"
+    severity: error
+    category: accessibility
+    applies_to:
+      patterns: [P-05, P-06, P-07, P-08]
+    when:
+      pattern_type: "overlay"
+    assert:
+      focus_trap: true
+    message: "Overlay ${pattern_id} must trap focus within modal content"
+    autofix:
+      suggestion: "Implement focus trap on modal open"
+      regenerate_hint: |
+        Use focus-trap library or implement:
+        1. Focus first focusable element on open
+        2. Tab cycles within modal
+        3. Return focus to trigger on close
+
+  - id: A11Y-002
+    title: "Icon buttons require accessible label"
+    severity: error
+    category: accessibility
+    applies_to:
+      components: [icon-button]
+    when:
+      component_type: "icon-button"
+    assert:
+      has_one_of:
+        - tooltip
+        - aria-label
+    message: "icon-button must have either tooltip or aria-label for accessibility"
+    autofix:
+      suggestion: "Add tooltip prop or aria-label attribute"
+      regenerate_hint: |
+        IconButton requires accessible name:
+        <IconButton tooltip="Edit" /> or
+        <IconButton aria-label="Edit" />
+
+  - id: A11Y-003
+    title: "Form inputs require labels"
+    severity: error
+    category: accessibility
+    applies_to:
+      components: [input-field, select-field, textarea]
+    when:
+      component_type: "form-input"
+    assert:
+      has_one_of:
+        - label
+        - aria-label
+        - aria-labelledby
+    message: "Form input must have visible label or aria-label"
+    autofix:
+      suggestion: "Add label prop to input component"
+      regenerate_hint: |
+        All form inputs need accessible labels:
+        <Input label="Email" /> or
+        <Input aria-label="Email address" />
+
+  - id: A11Y-004
+    title: "Tables require accessible headers"
+    severity: warning
+    category: accessibility
+    applies_to:
+      patterns: [P-02]
+      zones: [zone-c]
+    when:
+      pattern_used: "P-02"
+    assert:
+      header_element: "th"
+      scope_attribute: "col"
+    message: "Table headers in P-02 should use <th> elements with scope='col'"
+    autofix:
+      suggestion: "Use semantic table header elements"
+      regenerate_hint: |
+        P-02 table-header zone should render:
+        <th scope="col">Column Name</th>
+
+  - id: A11Y-005
+    title: "Color contrast for interactive elements"
+    severity: warning
+    category: accessibility
+    applies_to:
+      components: [primary-button, secondary-button, text-cell]
+    when:
+      component_has_text: true
+    assert:
+      contrast_ratio: ">= 4.5"
+    message: "Interactive text must meet WCAG AA contrast ratio (4.5:1)"
+    autofix:
+      suggestion: "Use design system color tokens"
+      regenerate_hint: |
+        Use approved color tokens:
+        --color-base-primary for text
+        --color-brand-primary for interactive elements
+
+# ============================================
+# RULE SUMMARY
+# ============================================
+
+summary:
+  total_rules: 25
+  by_severity:
+    error: 14
+    warning: 8
+    info: 3
+  by_category:
+    structure: 7
+    nesting: 5
+    consistency: 5
+    interaction: 6
+    data: 3
+    accessibility: 5

@@ -1,0 +1,286 @@
+# User Flow Patterns for Back Office UI
+# These patterns describe common user interaction flows
+
+version: "1.0"
+description: "User flow patterns extracted from back office screens"
+
+flows:
+  # CRUD - Create flow
+  create_flow:
+    id: UF-001
+    name: "Create Entity Flow"
+    description: "Standard flow for creating a new entity"
+    steps:
+      - step: 1
+        action: "Click Create button"
+        location: "List page header"
+        component: Button (primary)
+        icon: PlusIcon
+      - step: 2
+        action: "Navigate to create page"
+        transition: "Navigate to detail/builder page"
+      - step: 3
+        action: "Fill form fields"
+        components: [Input, Select, DatePicker, Toggle]
+        validation: "Real-time validation with error states"
+      - step: 4
+        action: "Save entity"
+        options:
+          - "Save Changes" (stays on page)
+          - "Save & Close" (returns to list)
+        component: Button (primary)
+      - step: 5
+        action: "Show success notification"
+        component: Notification
+        variant: success
+        message: "{Entity} created successfully"
+    error_handling:
+      validation_error:
+        - "Highlight invalid fields"
+        - "Show error messages below fields"
+        - "Scroll to first error"
+      server_error:
+        - "Show error notification"
+        - "Keep form data"
+
+  # CRUD - Read/View flow
+  view_flow:
+    id: UF-002
+    name: "View Entity Flow"
+    description: "Standard flow for viewing entity details"
+    steps:
+      - step: 1
+        action: "Click on entity row or title"
+        location: "List page table"
+      - step: 2
+        action: "Navigate to detail page"
+        transition: "Navigate with entity ID"
+      - step: 3
+        action: "View entity details"
+        components: [Form (read-only), Sections, Tabs]
+
+  # CRUD - Update flow
+  update_flow:
+    id: UF-003
+    name: "Update Entity Flow"
+    description: "Standard flow for editing an existing entity"
+    steps:
+      - step: 1
+        action: "Click Edit action"
+        location: "Table row actions or detail page"
+        component: IconButton
+        icon: EditIcon
+      - step: 2
+        action: "Navigate to edit page"
+        transition: "Navigate with entity ID"
+      - step: 3
+        action: "Modify form fields"
+        components: [Input, Select, DatePicker, Toggle]
+      - step: 4
+        action: "Save changes"
+        component: Button (primary)
+      - step: 5
+        action: "Show success notification"
+        component: Notification
+        variant: success
+
+  # CRUD - Delete flow
+  delete_flow:
+    id: UF-004
+    name: "Delete Entity Flow"
+    description: "Standard flow for deleting an entity"
+    steps:
+      - step: 1
+        action: "Click Delete action"
+        location: "Table row actions"
+        component: IconButton
+        icon: TrashIcon
+      - step: 2
+        action: "Show confirmation popup"
+        component: Popup
+        title: "Delete {Entity}?"
+        description: "Are you sure you want to delete this {entity}? This action cannot be undone."
+        actions:
+          cancel: "Cancel"
+          confirm: "Delete" (danger variant)
+      - step: 3
+        condition: "User confirms"
+        action: "Delete entity"
+        api_call: "DELETE /api/{entity}/{id}"
+      - step: 4
+        action: "Show success notification"
+        component: Notification
+        variant: success
+        message: "{Entity} deleted successfully"
+      - step: 5
+        action: "Refresh list"
+
+  # Duplicate flow
+  duplicate_flow:
+    id: UF-005
+    name: "Duplicate Entity Flow"
+    description: "Flow for duplicating an existing entity"
+    steps:
+      - step: 1
+        action: "Click Duplicate action"
+        location: "Table row actions (via More menu)"
+      - step: 2
+        action: "Show duplicate modal"
+        component: ConfirmModal
+        title: "Duplicate {Entity}?"
+        description: "You are about to duplicate {Entity Name}. Configuration will be the same, but you can change it later."
+        fields:
+          - component: Input
+            label: "{Entity} Name"
+            default: "{Original Name} (Copy)"
+      - step: 3
+        condition: "User confirms"
+        action: "Create duplicate"
+        api_call: "POST /api/{entity}/duplicate/{id}"
+      - step: 4
+        action: "Navigate to new entity"
+        transition: "Navigate to detail page of new entity"
+
+  # Bulk actions flow
+  bulk_actions_flow:
+    id: UF-006
+    name: "Bulk Actions Flow"
+    description: "Flow for performing actions on multiple entities"
+    steps:
+      - step: 1
+        action: "Select multiple rows"
+        component: Checkbox
+        location: "Table rows"
+      - step: 2
+        action: "Show selection count"
+        location: "Above table or in action bar"
+        text: "{N} items selected"
+      - step: 3
+        action: "Choose bulk action"
+        options:
+          - "Delete selected"
+          - "Export selected"
+          - "Change status"
+      - step: 4
+        action: "Confirm action"
+        component: Popup or ConfirmModal
+      - step: 5
+        action: "Execute action"
+        show_progress: true (for large batches)
+      - step: 6
+        action: "Show result notification"
+
+  # Filter and search flow
+  filter_search_flow:
+    id: UF-007
+    name: "Filter and Search Flow"
+    description: "Flow for filtering and searching data"
+    steps:
+      - step: 1
+        action: "Click filter dropdown"
+        component: Select
+      - step: 2
+        action: "Select filter value"
+        behavior: "Immediate filter application"
+      - step: 3
+        action: "Type in search field"
+        component: SearchInput
+        behavior: "Debounced search (300ms)"
+      - step: 4
+        action: "Results update"
+        animation: "Fade transition"
+      - step: 5
+        action: "Clear filters"
+        component: Button or Clear icon
+        resets: "All filters to default"
+
+  # Toggle status flow
+  toggle_status_flow:
+    id: UF-008
+    name: "Toggle Status Flow"
+    description: "Quick flow for toggling entity status"
+    steps:
+      - step: 1
+        action: "Click toggle"
+        component: Toggle
+        location: "Table row or detail page"
+      - step: 2
+        condition: "If critical change"
+        action: "Show confirmation popup"
+        component: Popup
+      - step: 3
+        action: "Update status"
+        api_call: "PATCH /api/{entity}/{id}/status"
+        optimistic_update: true
+      - step: 4
+        action: "Show status indicator"
+        component: Toggle reflects new state
+
+  # Date range selection flow
+  date_range_flow:
+    id: UF-009
+    name: "Date Range Selection Flow"
+    description: "Flow for selecting date ranges"
+    steps:
+      - step: 1
+        action: "Click date range input"
+        component: DatePickerInput
+      - step: 2
+        action: "Show date picker"
+        component: DatePicker
+        variant: range
+      - step: 3
+        action: "Select start date"
+        behavior: "Click on calendar day"
+      - step: 4
+        action: "Select end date"
+        behavior: "Click on second day"
+      - step: 5
+        action: "Quick period selection"
+        component: Period buttons
+        options: ["Today", "Yesterday", "This Week", "This Month"]
+      - step: 6
+        action: "Apply selection"
+        component: Button
+        closes: "Date picker"
+
+# Flow rules
+rules:
+  confirmations:
+    - "Destructive actions always require confirmation"
+    - "Status changes on active items may require confirmation"
+    - "Bulk actions always require confirmation"
+  
+  notifications:
+    - "Success actions show green notification"
+    - "Errors show red notification with retry option"
+    - "Notifications auto-dismiss after 5 seconds"
+  
+  navigation:
+    - "Save & Close returns to previous page"
+    - "Cancel discards changes and returns"
+    - "Unsaved changes show warning on navigation"
+  
+  validation:
+    - "Validate on blur for individual fields"
+    - "Full validation on submit"
+    - "Show all errors at once, scroll to first"
+
+# Flow templates for AI generation
+templates:
+  crud:
+    entities:
+      - name: "Campaign"
+        list_columns: [status, title, id, updated_at, updated_by, created_at, created_by]
+        detail_fields: [name, description, status, start_date, end_date]
+        actions: [create, view, edit, duplicate, delete]
+      
+      - name: "Audience"
+        list_columns: [status, title, user_count, created_at, created_by]
+        detail_fields: [name, description, rules, filters]
+        actions: [create, view, edit, duplicate, delete]
+      
+      - name: "Gift"
+        list_columns: [image, title, category, price, status]
+        detail_fields: [name, image, category, price, inventory]
+        actions: [create, view, edit, delete]

@@ -1,0 +1,145 @@
+# Layout Patterns for Back Office UI
+# These patterns describe the structural layouts used across the application
+
+version: "1.0"
+description: "Layout patterns extracted from back office screens"
+
+layouts:
+  # Standard page layout with sidebar
+  standard_page:
+    id: LP-001
+    name: "Standard Page Layout"
+    description: "Default page layout with top bar, sidebar, and content area"
+    structure:
+      - component: TopBar
+        position: top
+        height: 48px
+        contains:
+          - logo
+          - project_selector
+          - user_actions
+      - component: Sidebar
+        position: left
+        width: 236px
+        contains:
+          - menu_groups
+          - menu_items
+          - submenus
+          - back_link
+      - component: ContentArea
+        position: main
+        contains:
+          - header
+          - content
+    usage:
+      - "All main application pages"
+      - "Dashboard views"
+      - "List and detail pages"
+
+  # Table/list page layout
+  table_page:
+    id: LP-002
+    name: "Table Page Layout"
+    description: "Layout for displaying data in tabular format"
+    extends: standard_page
+    content_structure:
+      - component: PageHeader
+        contains:
+          - title: headline-1
+          - subtitle: paragraph-2 (optional)
+      - component: FilterRow
+        height: 32px
+        contains:
+          - filters: left
+          - search: right
+          - actions: right
+      - component: DataTable
+        contains:
+          - table_header
+          - table_rows
+          - table_actions
+      - component: Pagination
+        height: 48px
+        contains:
+          - count_info: left
+          - rows_per_page: right
+          - page_selector: right
+          - navigation: right
+    spacing:
+      header_to_filters: 16px
+      filters_to_table: 8px
+      table_to_pagination: 0px
+
+  # Configuration page with right sidebar
+  configuration_page:
+    id: LP-003
+    name: "Configuration Page Layout"
+    description: "Layout for configuration/editing pages with settings sidebar"
+    extends: standard_page
+    content_structure:
+      - component: PageHeader
+        contains:
+          - back_button: IconButton
+          - title: headline-1
+          - actions: right aligned
+      - component: MainContent
+        width: "calc(100% - 330px)"
+        contains:
+          - form_sections
+          - configuration_panels
+      - component: RightSidebar
+        width: 330px
+        position: right
+        contains:
+          - status_section
+          - details_section
+          - schedule_section
+          - save_button
+    spacing:
+      header_height: 32px
+      sidebar_padding: 16px
+      section_gap: 16px
+
+  # Modal overlay layout
+  modal_layout:
+    id: LP-004
+    name: "Modal Layout"
+    description: "Overlay layout for modal dialogs"
+    structure:
+      - component: Overlay
+        background: "black/20"
+        position: fixed
+        z_index: 9999
+      - component: ModalContainer
+        position: center
+        variants:
+          large:
+            width: 400px
+            border_radius: 16px
+            padding: 32px
+          small:
+            width: 200px
+            border_radius: 8px
+            padding: 16px
+    behavior:
+      close_on_overlay_click: true
+      close_on_escape: true
+      prevent_body_scroll: true
+
+# Layout rules
+rules:
+  sidebar:
+    - "Sidebar is always visible on desktop"
+    - "Active menu item has pink background with 0.08 opacity"
+    - "Submenus expand below parent item"
+    - "Back link is at the bottom"
+  
+  content_area:
+    - "Content has 24px padding"
+    - "Maximum content width follows container"
+    - "Scrollable content area"
+  
+  modals:
+    - "Centered on screen"
+    - "Overlay prevents interaction with background"
+    - "Focus trapped within modal"

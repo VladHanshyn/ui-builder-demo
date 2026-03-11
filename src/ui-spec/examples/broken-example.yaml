@@ -1,0 +1,132 @@
+# UI Spec Example: FIXED
+# This file was fixed to pass validation
+
+version: "1.0"
+id: broken-example
+title: Fixed Example
+description: This spec has been fixed
+
+root_pattern: P-02
+patterns_used:
+  - P-02
+  - P-05
+
+# ============================================
+# ZONES
+# ============================================
+
+zones:
+  # P-02 zone-a: Page Header
+  zone-a:
+    pattern_id: P-02
+    components:
+      - id: page-title
+        props:
+          text: "Fixed Page"
+          
+      - id: primary-button
+        key: btn-1
+        props:
+          label: "Primary Action"
+
+  # P-02 zone-c: Table Header (required)
+  zone-c:
+    pattern_id: P-02
+    components:
+      - id: column-header
+        props:
+          label: "Name"
+      - id: column-header
+        props:
+          label: "Actions"
+
+  # P-02 zone-d: Table Body  
+  zone-d:
+    pattern_id: P-02
+    components:
+      - id: table-row
+        children:
+          - id: text-cell
+          - id: action-button-group
+            children:
+              # Warning: More than 4 visible actions (kept for testing warnings)
+              - id: icon-button
+                props:
+                  icon: edit
+                  # Missing tooltip - Warning: A11Y issue (kept for testing)
+              - id: icon-button
+                props:
+                  icon: view
+              - id: icon-button
+                props:
+                  icon: copy
+              - id: icon-button
+                props:
+                  icon: archive
+              - id: icon-button
+                props:
+                  icon: download
+              - id: icon-button
+                key: delete-btn
+                props:
+                  icon: trash
+                  variant: danger
+                actions:
+                  # Fixed: Now opens confirmation overlay
+                  - id: delete-item
+                    type: open_overlay
+                    target: confirm-delete
+
+  # P-02 zone-e: Pagination Footer (required)
+  zone-e:
+    pattern_id: P-02
+    components:
+      - id: count-info
+        props:
+          template: "1-10 of 100"
+      - id: prev-next-buttons
+
+# ============================================
+# OVERLAYS
+# ============================================
+
+overlays:
+  - id: confirm-delete
+    pattern_id: P-05
+    title: "Delete Item"
+    variant: danger
+    zones:
+      zone-a:
+        pattern_id: P-05
+        components:
+          - id: title
+            props:
+              text: "Delete Item"
+      zone-b:
+        pattern_id: P-05
+        components:
+          - id: warning-text
+            props:
+              text: "Are you sure?"
+      zone-c:
+        pattern_id: P-05
+        components:
+          - id: cancel-button
+            actions:
+              - id: close
+                type: close_overlay
+                target: confirm-delete
+          - id: primary-button
+            props:
+              label: "Delete"
+              variant: danger
+            actions:
+              - id: execute-delete
+                type: api_call
+                method: DELETE
+                target: "/api/items/{{id}}"
+    open_triggers:
+      - delete-item
+    close_triggers:
+      - close
+      - execute-delete

@@ -1,0 +1,108 @@
+{
+  "fontFamily": {
+    "primary": "Roboto",
+    "fallback": "Arial, Helvetica, sans-serif"
+  },
+  "fontWeight": {
+    "regular": 400,
+    "medium": 500,
+    "bold": 700
+  },
+  "styles": {
+    "hero": {
+      "hero1": {
+        "fontSize": 48,
+        "lineHeight": 64,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      },
+      "hero2": {
+        "fontSize": 40,
+        "lineHeight": 56,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      },
+      "hero3": {
+        "fontSize": 32,
+        "lineHeight": 40,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      },
+      "hero4": {
+        "fontSize": 28,
+        "lineHeight": 36,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      }
+    },
+    "headline": {
+      "headline1": {
+        "fontSize": 24,
+        "lineHeight": 32,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      },
+      "headline2": {
+        "fontSize": 18,
+        "lineHeight": 28,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      },
+      "headline3": {
+        "fontSize": 16,
+        "lineHeight": 24,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      },
+      "headline4": {
+        "fontSize": 14,
+        "lineHeight": 20,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      }
+    },
+    "paragraph": {
+      "paragraph1": {
+        "fontSize": 16,
+        "lineHeight": 24,
+        "fontWeight": 400,
+        "letterSpacing": 0
+      },
+      "paragraph2": {
+        "fontSize": 14,
+        "lineHeight": 20,
+        "fontWeight": 400,
+        "letterSpacing": 0
+      },
+      "paragraph3": {
+        "fontSize": 12,
+        "lineHeight": 20,
+        "fontWeight": 400,
+        "letterSpacing": 0
+      }
+    },
+    "label": {
+      "labelNormal": {
+        "fontSize": 12,
+        "lineHeight": 12,
+        "fontWeight": 500,
+        "letterSpacing": 0
+      },
+      "labelTiny": {
+        "fontSize": 10,
+        "lineHeight": 10,
+        "fontWeight": 500,
+        "letterSpacing": 0,
+        "textTransform": "capitalize"
+      }
+    }
+  },
+  "modifiers": {
+    "link": {
+      "textDecoration": "underline"
+    },
+    "striked": {
+      "textDecoration": "line-through"
+    }
+  }
+}

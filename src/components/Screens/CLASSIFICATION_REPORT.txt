@@ -1,0 +1,178 @@
+================================================================================
+SCREEN CLASSIFICATION REPORT
+================================================================================
+
+Classification Date: 2026-01-25
+Total Screens Classified: 430
+
+================================================================================
+CLASSIFICATION BY PATTERN
+================================================================================
+
+PATTERN                         | COUNT | PERCENTAGE
+--------------------------------|-------|------------
+P-02_Tabular-Data-View          |    31 |    7.2%
+P-03_Detail-Editor              |   231 |   53.7%
+P-04_Card-Selection-Grid        |    47 |   10.9%
+P-05_Confirmation-Dialog        |    18 |    4.2%
+P-06_Input-Dialog               |     0 |    0.0%
+P-07_Selection-List-Panel       |    44 |   10.2%
+P-08_Device-Preview             |    37 |    8.6%
+P-09_Orderable-List             |    22 |    5.1%
+--------------------------------|-------|------------
+TOTAL                           |   430 |  100.0%
+
+
+================================================================================
+P-02: TABULAR DATA VIEW (31 files)
+================================================================================
+Structure: Sidebar + Header + Filter Row + Data Table + Pagination
+
+Files:
+- Agencies Tiers 07.png
+- Auctions 01.png - 04.png
+- Categories 01.png
+- Daily Quests 01.png - 02.png
+- Daily Rewards 01.png
+- Games 07.png
+- Games Campaigns 01.png - 02.png
+- Jackpot Drop 01.png - 02.png
+- Landing Pages 01.png
+- Legal Documents 01.png - 02.png
+- Loyalty Offer 01.png
+- Lucky Store 01.png
+- MOS Campaigns 02.png
+- Manage Free Spins 01.png
+- Opt-in Configs 02.png - 03.png
+- Pricing Templates 01.png
+- Providers 01.png - 02.png
+- Resellers Manager 02.png - 03.png
+- Tagged Configs 01.png - 02.png
+- Vector Configuration 01.png
+
+
+================================================================================
+P-03: DETAIL EDITOR WITH PROPERTIES PANEL (231 files)
+================================================================================
+Structure: Sidebar + Header (Back + Title + Actions) + Main Form + Right Panel
+
+Files:
+- Auctions 05.png - 22.png (18 files)
+- Daily Quests 03.png - 07.png (5 files)
+- Daily Rewards 02.png - 12.png (11 files)
+- Games Campaigns 03.png - 13.png (11 files)
+- Landing Pages 02.png - 03.png (2 files)
+- Legal Documents 03.png - 27.png (25 files)
+- Loyalty Offer 02.png - 03.png (2 files)
+- Lucky Store 02.png - 13.png (12 files)
+- Manage Free Spins 02.png - 06.png (5 files)
+- Pricing Templates 02.png - 29.png (28 files)
+- Promo 02.png - 37.png (36 files)
+- Tagged Configs 03.png - 05.png (3 files)
+- Vector Configuration 02.png - 27.png (26 files)
+- VIP Store - Ribbons 01.png - 47.png (47 files)
+
+
+================================================================================
+P-04: CARD SELECTION GRID (47 files)
+================================================================================
+Structure: Sidebar + Header + Card Grid + Right Panel
+
+Files:
+- Auction Creation 01.png - 16.png (16 files)
+- MOS Campaigns 06.png - 37.png (31 files, excluding 10)
+
+
+================================================================================
+P-05: CONFIRMATION DIALOG (18 files)
+================================================================================
+Structure: Modal overlay with confirmation message + action buttons
+
+Files:
+- MOS Campaigns 10.png (1 file)
+- Opt-in Configs 01.png, 04.png - 18.png (16 files)
+- Promo 01.png (1 file)
+
+
+================================================================================
+P-06: INPUT DIALOG (0 files)
+================================================================================
+Structure: Modal with input field(s) + action buttons
+
+Note: No screens with visible input dialogs captured.
+Input dialogs typically overlay existing screens.
+
+
+================================================================================
+P-07: SELECTION LIST PANEL (44 files)
+================================================================================
+Structure: Panel with checkbox list + filters + pagination + action buttons
+
+Files:
+- Jackpot Drop 03.png - 30.png (28 files)
+- Resellers Manager 01.png, 04.png - 18.png (16 files)
+
+
+================================================================================
+P-08: DEVICE PREVIEW OVERLAY (37 files)
+================================================================================
+Structure: Device mockup (phone frame) + configuration panel
+
+Files:
+- Bottom Sheet 01.png - 16.png (16 files)
+- Cold Start Emilator 01.png - 17.png (17 files)
+- MOS Campaigns 01.png, 03.png - 05.png (4 files)
+
+
+================================================================================
+P-09: ORDERABLE LIST (22 files)
+================================================================================
+Structure: Drag-handle list + order buttons + status toggles
+
+Files:
+- Audience Priority 01.png - 02.png (2 files)
+- Priority Settings 01.png - 10.png (10 files)
+- Ribbons 01.png - 10.png (10 files)
+
+
+================================================================================
+PATTERN DISTRIBUTION ANALYSIS
+================================================================================
+
+The most common pattern is P-03 (Detail Editor), representing 53.7% of all
+screens. This indicates the application is primarily focused on creating
+and editing entities with structured property panels.
+
+Pattern Distribution Chart:
+
+P-03 ████████████████████████████████████████████████████░ 53.7%
+P-04 ███████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 10.9%
+P-07 ██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 10.2%
+P-08 █████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  8.6%
+P-02 ███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  7.2%
+P-09 █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  5.1%
+P-05 ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  4.2%
+P-06 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  0.0%
+
+
+================================================================================
+FOLDER STRUCTURE
+================================================================================
+
+src/components/Screens/
+├── P-02_Tabular-Data-View/        (31 files)
+├── P-03_Detail-Editor/            (231 files)
+├── P-04_Card-Selection-Grid/      (47 files)
+├── P-05_Confirmation-Dialog/      (18 files)
+├── P-06_Input-Dialog/             (0 files - placeholder)
+├── P-07_Selection-List-Panel/     (44 files)
+├── P-08_Device-Preview/           (37 files)
+├── P-09_Orderable-List/           (22 files)
+├── CLASSIFICATION_REPORT.txt
+├── STRUCTURAL_ANALYSIS.txt
+└── (utility scripts)
+
+
+================================================================================
+END OF REPORT
+================================================================================

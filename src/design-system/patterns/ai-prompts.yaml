@@ -1,0 +1,365 @@
+# AI Training Prompts for UI Generation
+# Use these prompts to train AI to generate consistent interfaces
+
+version: "1.0"
+description: "Prompts and examples for AI-powered UI generation"
+
+system_context: |
+  You are a UI developer working on a back office CRM system built with React, Next.js, and Tailwind CSS.
+  The design system uses CSS variables for colors and typography defined in the design-system folder.
+  Follow these key principles:
+  - Use existing components from @/components
+  - Apply design tokens from the design system
+  - Follow established patterns for layouts, components, and flows
+  - Maintain visual consistency with hover states using brand-primary color with 0.08 opacity
+  - All interactive elements should have proper states (default, hover, active, disabled)
+
+design_tokens:
+  colors:
+    brand:
+      primary: "var(--color-brand-primary)"      # Pink/Magenta
+      secondary: "var(--color-brand-secondary)"  # Light pink
+    base:
+      primary: "var(--color-base-primary)"       # Dark text
+      secondary: "var(--color-base-secondary)"   # Gray text
+      tertiary: "var(--color-base-tertiary)"     # Light gray
+      surface_primary: "var(--color-base-surface-primary)"   # White
+      surface_secondary: "var(--color-base-surface-secondary)" # Light gray bg
+      stroke: "var(--color-base-stroke)"         # Border color
+    system:
+      success: "var(--color-system-success)"
+      warning: "var(--color-system-warning)"
+      error: "var(--color-system-error)"
+      info: "var(--color-system-info)"
+  
+  typography:
+    headline_1: "text-headline-1"  # 24px, Medium, line-height 32px
+    headline_2: "text-headline-2"  # 20px, Medium, line-height 28px
+    headline_3: "text-headline-3"  # 16px, Medium, line-height 24px
+    headline_4: "text-headline-4"  # 14px, Medium, line-height 20px
+    paragraph_1: "text-paragraph-1"  # 16px, Regular, line-height 24px
+    paragraph_2: "text-paragraph-2"  # 14px, Regular, line-height 20px
+    paragraph_3: "text-paragraph-3"  # 12px, Regular, line-height 16px
+  
+  spacing:
+    page_padding: "24px"
+    section_gap: "24px"
+    component_gap: "16px"
+    element_gap: "8px"
+  
+  sizes:
+    sidebar_width: "236px"
+    topbar_height: "48px"
+    button_height: "32px"
+    input_height: "32px"
+    table_header_height: "32px"
+    table_row_height: "48px"
+
+# Prompt templates for generating different UI elements
+
+prompts:
+  # Generate a list page
+  list_page:
+    description: "Generate a list page with table, filters, and pagination"
+    template: |
+      Create a list page for {entity_name} with the following requirements:
+      
+      ## Layout
+      - Use standard page layout with sidebar and content area
+      - Header with page title "{entity_name}" and create button
+      
+      ## Filters
+      Implement filter row with:
+      {filters}
+      
+      ## Table
+      Create a table with columns:
+      {columns}
+      
+      Row actions: {row_actions}
+      
+      ## Pagination
+      - Show item count
+      - Rows per page selector (10, 25, 50)
+      - Page navigation
+      
+      ## Components to use:
+      - Button, IconButton, ButtonGroup
+      - Select, SearchInput, DatePickerInput
+      - Checkbox, Toggle
+      - Chip (for user avatars)
+      - Table with proper styling
+      
+      ## Styling:
+      - Hover state: bg-[var(--color-brand-primary)]/[0.08]
+      - Border radius: 8px for inputs, buttons
+      - Use text-headline-1 for page title
+      - Use text-paragraph-2 for table content
+    
+    example:
+      entity_name: "Campaigns"
+      filters:
+        - "Status (Active/Inactive)"
+        - "Created by"
+        - "Date range"
+      columns:
+        - "checkbox"
+        - "status (toggle)"
+        - "title (with copy icon)"
+        - "id (with copy icon)"
+        - "updated at"
+        - "updated by (chip)"
+        - "created at"
+        - "created by (chip)"
+        - "actions"
+      row_actions:
+        - "Edit"
+        - "Duplicate"
+        - "Delete"
+
+  # Generate a detail/edit page
+  detail_page:
+    description: "Generate a detail page with form and sidebar"
+    template: |
+      Create a detail page for {entity_name} with the following:
+      
+      ## Header
+      - Back button (IconButton with ArrowLeftIcon)
+      - Page title: "{page_title}"
+      - Action buttons: {header_actions}
+      
+      ## Main Content
+      Form sections:
+      {form_sections}
+      
+      ## Right Sidebar (330px width)
+      Sections:
+      {sidebar_sections}
+      
+      ## Components to use:
+      - IconButton for back navigation
+      - Button for actions
+      - Input, Textarea, Select, DatePickerInput for forms
+      - Toggle for status
+      
+      ## Styling:
+      - Section titles: text-headline-3
+      - Labels: text-headline-4
+      - Use border-b for section separation in sidebar
+    
+    example:
+      entity_name: "Campaign"
+      page_title: "Create Campaign"
+      header_actions:
+        - "Full Screen (secondary)"
+        - "Priority (secondary)"
+        - "Save Changes (secondary)"
+        - "Save & Close (primary)"
+      form_sections:
+        - title: "Configuration"
+          fields:
+            - "Name (required)"
+            - "Description"
+            - "Target settings"
+      sidebar_sections:
+        - title: "Campaign Status"
+          content: "Toggle On/Off"
+        - title: "Details"
+          fields: ["Title", "Campaign ID", "Comments"]
+        - title: "Schedule"
+          fields: ["Start Date", "End Date"]
+        - action: "Save Campaign (primary, full-width)"
+
+  # Generate a modal
+  modal:
+    description: "Generate a modal dialog"
+    template: |
+      Create a {modal_type} modal with:
+      
+      ## Content
+      - Title: "{title}"
+      - Description: "{description}"
+      {fields}
+      
+      ## Actions
+      - Cancel button: "{cancel_text}"
+      - Confirm button: "{confirm_text}" ({variant})
+      
+      ## Components to use:
+      - Modal, ModalContent, ModalHeader, ModalBody, ModalFooter
+      - For small popup: use Popup component
+      - Button for actions
+      
+      ## Styling:
+      - Large modal: 400px width, 16px border-radius, 32px padding
+      - Small popup: 200px width, 8px border-radius, 16px padding
+      - Overlay: bg-black/20
+    
+    examples:
+      confirmation:
+        modal_type: "confirmation"
+        title: "Duplicate Campaign?"
+        description: "You are about to duplicate Campaign Title 1. Configuration will be the same, but you can change it later."
+        fields:
+          - "Input for new name"
+        cancel_text: "Cancel"
+        confirm_text: "Duplicate Campaign"
+        variant: "primary"
+      
+      delete:
+        modal_type: "delete"
+        title: "Delete Campaign?"
+        description: "Are you sure you want to delete this campaign? This action cannot be undone."
+        fields: []
+        cancel_text: "Cancel"
+        confirm_text: "Delete"
+        variant: "danger"
+      
+      popup:
+        modal_type: "popup"
+        title: "Apply changes?"
+        description: "Are you sure you want to apply changes? It will affect users in Audience of this Campaign."
+        fields: []
+        cancel_text: "Cancel"
+        confirm_text: "Apply"
+        variant: "primary"
+
+  # Generate a filter component
+  filter_row:
+    description: "Generate a filter row"
+    template: |
+      Create a filter row with:
+      
+      ## Left Section (filters)
+      {filters}
+      
+      ## Right Section
+      - Search input: "{search_placeholder}"
+      - Additional buttons: {extra_buttons}
+      - Create button: "{create_button_text}"
+      
+      ## Components to use:
+      - Select with CaretDownIcon for dropdown filters
+      - DatePickerInput for date ranges
+      - SearchInput for search
+      - IconButton for extra actions
+      - Button for create action
+      
+      ## Styling:
+      - Height: 32px for all elements
+      - Gap between filters: 8px
+      - Gap between sections: 16px
+    
+    example:
+      filters:
+        - "Status Filter (Select)"
+        - "List Filter (Select)"
+        - "List Filter + Search (Select with search)"
+        - "Number Range Filter"
+        - "Date Range Filter (DatePickerInput)"
+        - "All Filters (Button with PlusIcon)"
+      search_placeholder: "Search..."
+      extra_buttons:
+        - "Settings (IconButton)"
+      create_button_text: "+ Create"
+
+  # Generate a table
+  table:
+    description: "Generate a data table"
+    template: |
+      Create a table with:
+      
+      ## Headers
+      {headers}
+      
+      ## Row Structure
+      {row_structure}
+      
+      ## Features
+      - Sortable columns: {sortable_columns}
+      - Row selection: {selection_mode}
+      - Row actions: {row_actions}
+      
+      ## Components to use:
+      - Checkbox for selection
+      - Toggle for status
+      - Chip for user avatars
+      - ButtonGroup for row actions
+      - IconButton for individual actions
+      
+      ## Styling:
+      - Header row: 32px height, bg-surface-secondary
+      - Body rows: 48px height
+      - Hover: bg-brand-primary/0.08
+      - Border: 1px solid var(--color-base-stroke)
+    
+    example:
+      headers:
+        - { name: "checkbox", width: "32px" }
+        - { name: "State", width: "84px" }
+        - { name: "Title", width: "200px" }
+        - { name: "ID", width: "170px" }
+        - { name: "Updated at", width: "140px", sortable: true }
+        - { name: "Updated by", width: "140px" }
+        - { name: "Created at", width: "140px", sortable: true }
+        - { name: "Created by", width: "140px" }
+        - { name: "Actions", width: "110px" }
+      row_structure:
+        - Checkbox
+        - Toggle
+        - Text + CopyIcon
+        - Text + CopyIcon
+        - Datetime
+        - Chip (user)
+        - Datetime
+        - Chip (user)
+        - ButtonGroup (edit, trash, more)
+      sortable_columns: ["Updated at", "Created at"]
+      selection_mode: "multi"
+      row_actions: ["edit", "duplicate", "delete"]
+
+# Component usage guidelines
+component_guidelines:
+  button:
+    variants:
+      primary: "bg-[var(--color-brand-primary)] text-white"
+      secondary: "bg-transparent border border-[var(--color-base-stroke)] text-[var(--color-base-primary)]"
+      danger: "bg-[var(--color-system-error)] text-white"
+    states:
+      hover_primary: "opacity-90"
+      hover_secondary: "bg-[var(--color-brand-primary)]/[0.08]"
+      disabled: "opacity-50 cursor-not-allowed"
+    sizes:
+      default: "h-8 px-4"
+      icon_only: "size-8"
+  
+  input:
+    states:
+      default: "border-[var(--color-base-stroke)]"
+      focus: "border-[var(--color-brand-primary)] ring-1 ring-[var(--color-brand-primary)]"
+      error: "border-[var(--color-system-error)]"
+      disabled: "bg-[var(--color-base-surface-secondary)] cursor-not-allowed"
+    sizes:
+      small: "h-8"
+    always_include:
+      - "rounded-lg"
+      - "px-2"
+      - "text-paragraph-2"
+  
+  modal:
+    overlay: "fixed inset-0 bg-black/20 z-[9999]"
+    container: "relative bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)]"
+    shadow: "shadow-[0px_4px_8px_-4px_rgba(0,0,0,0.12),0px_7px_40px_-8px_rgba(0,0,0,0.05)]"
+    large: "max-w-[400px] rounded-2xl"
+    small: "w-[200px] rounded-lg"
+
+# Screen analysis checklist
+analysis_checklist:
+  - "Identify the page type (list, detail, builder, dashboard)"
+  - "Document the layout structure"
+  - "List all components used"
+  - "Note spacing and sizing"
+  - "Capture interactive states"
+  - "Document data flow and actions"
+  - "Identify patterns that can be reused"
+  - "Note any variations from standard patterns"

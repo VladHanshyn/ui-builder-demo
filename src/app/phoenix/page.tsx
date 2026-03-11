@@ -1,0 +1,1109 @@
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { WizardModal, type WizardIntent, type NavSection } from "@/ui-generator";
+import { getNavigation, saveNavigation, addPageToSection, addNewSection, DEFAULT_SECTIONS } from "@/ui-generator/navigationTree";
+import { titleToFeatureId } from "@/ui-generator/wizardTypes";
+import { PreviewRenderer } from "@/features/agent/components/PreviewRenderer";
+import { CreatePageRenderer } from "@/features/agent/components/CreatePageRenderer";
+import { generateDummyData } from "@/features/agent/agentMock";
+import type { UISpec, TableColumn, CreatePageSpec } from "@/features/agent/types";
+import type { NavigationConfig } from "@/ui-generator";
+
+interface FeatureRequest {
+  id: string;
+  pageId: string;
+  title: string;
+  description: string;
+  navigation: NavigationConfig;
+  parentSectionLabel: string;
+  spec: UISpec;
+  createPageSpec: CreatePageSpec;
+  createdAt: string;
+  columnCount: number;
+  actionCount: number;
+}
+
+// Icons
+const PhoenixIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M10 2C6 2 3 5 3 9C3 11 4 13 6 14L5 18L10 16L15 18L14 14C16 13 17 11 17 9C17 5 14 2 10 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <circle cx="7" cy="8" r="1" fill="currentColor"/>
+    <circle cx="13" cy="8" r="1" fill="currentColor"/>
+    <path d="M8 11C8 11 9 12 10 12C11 12 12 11 12 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+const AgentIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M10 2L2 6L10 10L18 6L10 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M2 14L10 18L18 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M2 10L10 14L18 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const ComponentsIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="3" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+    <rect x="11" y="3" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+    <rect x="3" y="11" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+    <rect x="11" y="11" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+  </svg>
+);
+
+const ChevronDownIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const AudiencesIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="10" cy="6" r="3" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M4 17C4 14 6.5 12 10 12C13.5 12 16 14 16 17" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+const ChatIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M3 5C3 3.89543 3.89543 3 5 3H15C16.1046 3 17 3.89543 17 5V12C17 13.1046 16.1046 14 15 14H7L3 17V5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
+const BannersIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M3 9H17" stroke="currentColor" strokeWidth="1.5"/>
+  </svg>
+);
+
+const GiftsIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="3" y="8" width="14" height="10" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M10 8V18" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M3 11H17" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M6 8C6 6 7.5 4 10 4C12.5 4 14 6 14 8" stroke="currentColor" strokeWidth="1.5"/>
+  </svg>
+);
+
+const FeaturesIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M10 2L12 8H18L13 12L15 18L10 14L5 18L7 12L2 8H8L10 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+  </svg>
+);
+
+const TagsIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M3 10V4C3 3.44772 3.44772 3 4 3H10L17 10L10 17L3 10Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+    <circle cx="7" cy="7" r="1" fill="currentColor"/>
+  </svg>
+);
+
+const CalendarIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="3" y="4" width="14" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M3 8H17" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M7 2V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+    <path d="M13 2V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+const HistoryIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5"/>
+    <path d="M10 6V10L13 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+/**
+ * App Switcher Dropdown
+ */
+function AppSwitcher() {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const apps = [
+    { id: "ui-builder", name: "UI Builder", icon: <AgentIcon />, active: false, href: "/" },
+    { id: "phoenix", name: "Phoenix", icon: <PhoenixIcon />, active: true, href: "/phoenix" },
+    { id: "components", name: "Components", icon: <ComponentsIcon />, active: false, href: "/components" },
+  ];
+
+  const currentApp = apps.find(app => app.active) || apps[0];
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+      >
+        <div className="w-8 h-8 rounded-lg bg-[var(--color-brand-primary)]/10 flex items-center justify-center text-[var(--color-brand-primary)]">
+          {currentApp.icon}
+        </div>
+        <span className="font-semibold text-[var(--color-base-primary)]">{currentApp.name}</span>
+        <ChevronDownIcon />
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 w-56 bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)] rounded-xl shadow-lg overflow-hidden z-50">
+          <div className="p-1">
+            {apps.map((app) => (
+              <a
+                key={app.id}
+                href={app.href}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                  app.active
+                    ? "bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]"
+                    : "text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)]"
+                }`}
+                onClick={() => setIsOpen(false)}
+              >
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  app.active
+                    ? "bg-[var(--color-brand-primary)] text-white"
+                    : "bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)]"
+                }`}>
+                  {app.icon}
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium">{app.name}</div>
+                  {app.active && (
+                    <div className="text-xs text-[var(--color-base-secondary)]">Current</div>
+                  )}
+                </div>
+                {app.active && (
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-brand-primary)]">
+                    <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </a>
+            ))}
+          </div>
+          <div className="border-t border-[var(--color-base-stroke)] p-2">
+            <div className="px-3 py-2 text-xs text-[var(--color-base-tertiary)]">
+              Switch between applications
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Navigation Item
+ */
+function NavItem({ 
+  icon, 
+  label, 
+  active = false,
+  hasSubmenu = false,
+  expanded = false,
+  onClick,
+}: { 
+  icon: React.ReactNode; 
+  label: string; 
+  active?: boolean;
+  hasSubmenu?: boolean;
+  expanded?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+        active
+          ? "bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)] font-medium"
+          : "text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)] hover:text-[var(--color-base-primary)]"
+      }`}
+    >
+      <span className="w-5 h-5 flex items-center justify-center">{icon}</span>
+      <span className="flex-1 text-left">{label}</span>
+      {hasSubmenu && (
+        <svg 
+          width="16" 
+          height="16" 
+          viewBox="0 0 16 16" 
+          fill="none"
+          className={`transition-transform ${expanded ? "rotate-180" : ""}`}
+        >
+          <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )}
+    </button>
+  );
+}
+
+/**
+ * Sub Navigation Item
+ */
+function SubNavItem({ label, active = false, onClick }: { label: string; active?: boolean; onClick?: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left pl-11 pr-3 py-1.5 text-sm rounded-lg transition-colors ${
+        active
+          ? "text-[var(--color-brand-primary)] font-medium"
+          : "text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Feature Requests Dropdown
+ */
+function FeatureRequestsDropdown({
+  requests,
+  onApprove,
+  onReject,
+  onPreview,
+}: {
+  requests: FeatureRequest[];
+  onApprove: (request: FeatureRequest) => void;
+  onReject: (requestId: string) => void;
+  onPreview: (request: FeatureRequest) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+          requests.length > 0
+            ? "border-[var(--color-status-warning)] text-[var(--color-status-warning)] hover:bg-[var(--color-status-warning)]/5"
+            : "border-[var(--color-base-stroke)] text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)]"
+        }`}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M3 3H13V11L10 9H3V3Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+          <path d="M5 11V13L8 11" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+        </svg>
+        Feature Requests
+        {requests.length > 0 && (
+          <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--color-status-warning)] text-white text-xs font-bold">
+            {requests.length}
+          </span>
+        )}
+      </button>
+
+      {isOpen && (
+        <div className="absolute top-full right-0 mt-1 w-[380px] bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)] rounded-xl shadow-lg overflow-hidden z-50">
+          <div className="px-4 py-3 border-b border-[var(--color-base-stroke)]">
+            <h3 className="text-sm font-semibold text-[var(--color-base-primary)]">
+              Feature Requests
+            </h3>
+            <p className="text-xs text-[var(--color-base-tertiary)] mt-0.5">
+              Pages awaiting approval before being added to navigation
+            </p>
+          </div>
+
+          {requests.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" className="mx-auto mb-2 text-[var(--color-base-tertiary)]">
+                <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2"/>
+              </svg>
+              <p className="text-sm text-[var(--color-base-tertiary)]">No pending requests</p>
+            </div>
+          ) : (
+            <div className="max-h-[400px] overflow-y-auto">
+              {requests.map((request) => (
+                <div
+                  key={request.id}
+                  className="px-4 py-3 border-b border-[var(--color-base-stroke)] last:border-b-0 hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm text-[var(--color-base-primary)]">
+                          {request.title}
+                        </span>
+                        <span className="px-1.5 py-0.5 text-xs rounded bg-[var(--color-status-warning)]/10 text-[var(--color-status-warning)]">
+                          Pending
+                        </span>
+                      </div>
+                      {request.description && (
+                        <p className="text-xs text-[var(--color-base-tertiary)] mt-0.5 truncate">
+                          {request.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-[var(--color-base-tertiary)]">
+                        <span className="px-1.5 py-0.5 rounded bg-[var(--color-base-surface-secondary)]">
+                          Table + Create Page
+                        </span>
+                        <span>{request.columnCount} columns</span>
+                        <span>{request.actionCount} actions</span>
+                        <span>
+                          {request.navigation.isNewSection
+                            ? `New section: ${request.parentSectionLabel}`
+                            : `Section: ${request.parentSectionLabel}`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-2.5">
+                    <button
+                      onClick={() => {
+                        onApprove(request);
+                        if (requests.length <= 1) setIsOpen(false);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--color-status-success)] text-white hover:opacity-90 transition-opacity"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                        <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => {
+                        onReject(request.id);
+                        if (requests.length <= 1) setIsOpen(false);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--color-base-stroke)] text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                        <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                      </svg>
+                      Reject
+                    </button>
+                    <button
+                      onClick={() => {
+                        onPreview(request);
+                        setIsOpen(false);
+                      }}
+                      className="ml-auto flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/5 transition-colors"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                        <path d="M8 3C4.5 3 1.5 6.5 1 8C1.5 9.5 4.5 13 8 13C11.5 13 14.5 9.5 15 8C14.5 6.5 11.5 3 8 3Z" stroke="currentColor" strokeWidth="1.5"/>
+                        <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/>
+                      </svg>
+                      Preview
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const ICON_MAP: Record<string, React.ReactNode> = {
+  audiences: <AudiencesIcon />,
+  chat: <ChatIcon />,
+  banners: <BannersIcon />,
+  gifts: <GiftsIcon />,
+  features: <FeaturesIcon />,
+  tags: <TagsIcon />,
+  calendar: <CalendarIcon />,
+  history: <HistoryIcon />,
+};
+
+function getIconForSection(iconKey: string): React.ReactNode {
+  return ICON_MAP[iconKey] || <FeaturesIcon />;
+}
+
+export default function PhoenixPage() {
+  const [navState, setNavState] = useState({ sections: DEFAULT_SECTIONS });
+  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
+    gifts: true,
+  });
+  const [activePage, setActivePage] = useState<string | null>(null);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [pageSpecs, setPageSpecs] = useState<Record<string, UISpec>>({});
+  const [createPageSpecs, setCreatePageSpecs] = useState<Record<string, CreatePageSpec>>({});
+  const [featureRequests, setFeatureRequests] = useState<FeatureRequest[]>([]);
+  const [previewingRequest, setPreviewingRequest] = useState<FeatureRequest | null>(null);
+  const [activeCreatePage, setActiveCreatePage] = useState<string | null>(null);
+  const [savedTableRows, setSavedTableRows] = useState<Record<string, Record<string, string>[]>>({});
+  /** When set, create form is in edit mode for this row; Save & Close updates instead of appending */
+  const [editingRow, setEditingRow] = useState<{ pageId: string; rowIndex: number } | null>(null);
+
+  const hydrated = useRef(false);
+  const skipFirstWrite = useRef({
+    featureRequests: true,
+    pageSpecs: true,
+    createPageSpecs: true,
+    savedTableRows: true,
+  });
+
+  useEffect(() => {
+    setNavState(getNavigation());
+    try {
+      const storedRequests = localStorage.getItem("phoenix-feature-requests");
+      if (storedRequests) setFeatureRequests(JSON.parse(storedRequests));
+      const storedSpecs = localStorage.getItem("phoenix-page-specs");
+      if (storedSpecs) setPageSpecs(JSON.parse(storedSpecs));
+      const storedCreateSpecs = localStorage.getItem("phoenix-create-page-specs");
+      if (storedCreateSpecs) setCreatePageSpecs(JSON.parse(storedCreateSpecs));
+      const storedRows = localStorage.getItem("phoenix-saved-table-rows");
+      if (storedRows) setSavedTableRows(JSON.parse(storedRows));
+    } catch {}
+    hydrated.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (skipFirstWrite.current.featureRequests) {
+      skipFirstWrite.current.featureRequests = false;
+      return;
+    }
+    localStorage.setItem("phoenix-feature-requests", JSON.stringify(featureRequests));
+  }, [featureRequests]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (skipFirstWrite.current.savedTableRows) {
+      skipFirstWrite.current.savedTableRows = false;
+      return;
+    }
+    localStorage.setItem("phoenix-saved-table-rows", JSON.stringify(savedTableRows));
+  }, [savedTableRows]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (skipFirstWrite.current.pageSpecs) {
+      skipFirstWrite.current.pageSpecs = false;
+      return;
+    }
+    localStorage.setItem("phoenix-page-specs", JSON.stringify(pageSpecs));
+  }, [pageSpecs]);
+
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (skipFirstWrite.current.createPageSpecs) {
+      skipFirstWrite.current.createPageSpecs = false;
+      return;
+    }
+    localStorage.setItem("phoenix-create-page-specs", JSON.stringify(createPageSpecs));
+  }, [createPageSpecs]);
+
+  const toggleMenu = (key: string) => {
+    setExpandedMenus(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const buildSpecFromIntent = useCallback((intent: WizardIntent): UISpec => {
+    const pageId = titleToFeatureId(intent.title);
+
+    const dataTypeToColumnType = (dataType: string): TableColumn["type"] => {
+      const mapping: Record<string, TableColumn["type"]> = {
+        string: "text", number: "number", date: "date",
+        enum: "status", boolean: "text", user: "text",
+        media: "text", id: "text",
+      };
+      return mapping[dataType] || "text";
+    };
+
+    const columns: TableColumn[] = intent.selectedFields.tableColumns.map((field) => ({
+      id: field.id,
+      label: field.label,
+      type: dataTypeToColumnType(field.dataType),
+      sortable: ["date", "number", "string", "user"].includes(field.dataType),
+      ...(field.dataType === "id" ? { width: "80px" } : {}),
+      ...(field.copyable ? { copyable: true } : {}),
+    }));
+
+    const hasAnyRowAction = intent.rowActions.viewDetails || intent.rowActions.edit ||
+      intent.rowActions.duplicate || intent.rowActions.approve ||
+      intent.rowActions.reject || intent.rowActions.delete;
+
+    if (hasAnyRowAction) {
+      columns.push({
+        id: "actions", label: "Actions", type: "actions", width: "140px",
+        actions: {
+          view: intent.rowActions.viewDetails,
+          edit: intent.rowActions.edit,
+          duplicate: intent.rowActions.duplicate,
+          delete: intent.rowActions.delete,
+        },
+      });
+    }
+
+    return {
+      version: "1.0",
+      page: { id: pageId, title: intent.title, description: intent.description },
+      toolbar: {
+        search: intent.filters.freeTextSearch,
+        filters: Object.entries(intent.filters.fieldFilters || {})
+          .filter(([, enabled]) => enabled)
+          .map(([fieldId]) => {
+            const field = intent.selectedFields.tableColumns.find(f => f.id === fieldId);
+            return {
+              id: fieldId,
+              label: field?.label || fieldId.charAt(0).toUpperCase() + fieldId.slice(1).replace(/-/g, " "),
+              type: "select" as const,
+            };
+          }),
+        actions: [
+          { id: "create", label: "Create", variant: "primary" as const, icon: "plus" },
+        ],
+      },
+      table: {
+        columns,
+        pagination: true,
+        selectable: intent.bulkActions.approveSelected || intent.bulkActions.rejectSelected,
+      },
+    };
+  }, []);
+
+  const buildCreatePageSpec = useCallback((intent: WizardIntent): CreatePageSpec | null => {
+    const cfg = intent.createPageConfig;
+    if (!cfg) return null;
+
+    const convertSections = (cfgSections: typeof cfg.sections): import("@/features/agent/types").SectionSpec[] => {
+      return cfgSections.map(s => {
+        const c = s.config as Record<string, unknown>;
+        switch (s.type) {
+          case "form":
+            return {
+              type: "form" as const,
+              id: s.id,
+              title: s.title,
+              fields: (c.fields as Array<Record<string, unknown>> || []).map((f: Record<string, unknown>) => {
+                const rawType = String(f.type || "input");
+                const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
+                const type = rawType === "readonly" ? "input" : rawType;
+                return {
+                  id: String(f.id || ""),
+                  label: String(f.label || ""),
+                  type: type as import("@/features/agent/types").FormFieldType,
+                  required: Boolean(f.required),
+                  width: (f.width as "full" | "half" | "third") || "full",
+                  autoGenerated: Boolean(f.autoGenerated),
+                  placeholder: f.placeholder ? String(f.placeholder) : undefined,
+                  readOnly: isReadOnly || undefined,
+                };
+              }),
+            };
+          case "accordion-list":
+            return {
+              type: "accordion-list" as const,
+              id: s.id,
+              addLabel: String(c.addLabel || "+ Add Item"),
+              itemTemplate: {
+                titleField: s.title,
+                hasStatusToggle: Boolean(c.hasStatusToggle),
+                actions: (c.actions as ("copy" | "view" | "delete")[]) || ["copy", "delete"],
+                fields: (c.fields as Array<Record<string, unknown>> | undefined)?.map((f: Record<string, unknown>) => {
+                  const rawType = String(f.type ?? "input");
+                  const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
+                  const type = rawType === "readonly" ? "input" : rawType;
+                  return {
+                    id: String(f.id ?? ""),
+                    label: String(f.label ?? ""),
+                    type: type as import("@/features/agent/types").PropertyFieldType,
+                    required: Boolean(f.required),
+                    placeholder: f.placeholder ? String(f.placeholder) : undefined,
+                    autoGenerated: Boolean(f.autoGenerated),
+                    copyable: Boolean(f.copyable),
+                    readOnly: isReadOnly || undefined,
+                  };
+                }),
+                children: c.children
+                  ? convertSections((c.children as typeof cfg.sections).map((ch: Record<string, unknown>) => ({
+                      id: `${s.id}-child-${ch.title || "section"}`,
+                      type: String(ch.type || "form") as typeof s.type,
+                      title: String(ch.title || "Section"),
+                      config: ch.fields ? { fields: ch.fields } : {},
+                    })))
+                  : [],
+              },
+            };
+          case "editable-table":
+            return {
+              type: "editable-table" as const,
+              id: s.id,
+              title: s.title,
+              addLabel: String(c.addLabel || "+ Add Row"),
+              columns: (c.columns as Array<Record<string, unknown>> || []).map((col: Record<string, unknown>) => ({
+                id: String(col.id || ""),
+                label: String(col.label || ""),
+                type: String(col.type || "input") as import("@/features/agent/types").EditableColumnType,
+              })),
+              hasDragHandle: Boolean(c.hasDragHandle),
+            };
+          case "master-detail":
+            return {
+              type: "master-detail" as const,
+              id: s.id,
+              masterList: {
+                titleField: String(c.titleField || "Item"),
+                subtitleTemplate: c.subtitleTemplate ? String(c.subtitleTemplate) : undefined,
+                actions: (c.actions as ("view" | "delete")[]) || ["delete"],
+              },
+              detailSections: c.detailChildren
+                ? convertSections((c.detailChildren as typeof cfg.sections).map((ch: Record<string, unknown>) => ({
+                    id: `${s.id}-detail-${ch.title || "section"}`,
+                    type: String(ch.type || "form") as typeof s.type,
+                    title: String(ch.title || "Section"),
+                    config: ch.fields ? { fields: ch.fields } : {},
+                  })))
+                : [],
+              addLabel: String(c.addLabel || "+ Add Item"),
+            };
+          case "media-upload":
+            return {
+              type: "media-upload" as const,
+              id: s.id,
+              title: s.title,
+              accept: (c.accept as "image" | "file") || "image",
+              modes: (c.modes as ("upload" | "url")[]) || ["upload", "url"],
+              showPreview: Boolean(c.showPreview),
+            };
+          case "simple-list":
+            return {
+              type: "simple-list" as const,
+              id: s.id,
+              addLabel: String(c.addLabel || "+ Add Item"),
+              itemTemplate: {
+                fields: (c.fields as Array<Record<string, unknown>> || []).map((f: Record<string, unknown>) => {
+                  const rawType = String(f.type || "input");
+                  const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
+                  const type = rawType === "readonly" ? "input" : rawType;
+                  return {
+                    id: String(f.id || ""),
+                    label: String(f.label || ""),
+                    type: type as import("@/features/agent/types").FormFieldType,
+                    width: "full" as const,
+                    readOnly: isReadOnly || undefined,
+                  };
+                }),
+              },
+            };
+          default:
+            return {
+              type: "form" as const,
+              id: s.id,
+              title: s.title,
+              fields: [],
+            };
+        }
+      });
+    };
+
+    return {
+      entityName: intent.title,
+      sections: convertSections(cfg.sections.slice(0, 1)),
+      properties: {
+        statusToggle: cfg.propertiesPanel.statusToggle,
+        statusLabel: cfg.propertiesPanel.statusLabel,
+        sections: cfg.propertiesPanel.sections.map(s => ({
+          id: s.id,
+          title: s.title,
+          fields: s.fields.map(f => {
+            const rawType = f.type;
+            const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
+            const type = rawType === "readonly" ? "input" : rawType;
+            return {
+              id: f.id,
+              label: f.label,
+              type: type as import("@/features/agent/types").PropertyFieldType,
+              required: f.required,
+              autoGenerated: f.autoGenerated,
+              placeholder: f.placeholder,
+              readOnly: isReadOnly || undefined,
+            };
+          }),
+        })),
+        showDelete: cfg.propertiesPanel.showDelete,
+      },
+      actions: {
+        saveChanges: cfg.saveChanges,
+        saveAndClose: cfg.saveAndClose,
+      },
+      toolbar: cfg.showToolbar ? {
+        showAddButton: true,
+        addLabel: `+ Add ${intent.title}`,
+        showExpandCollapse: true,
+      } : undefined,
+    };
+  }, []);
+
+  const handleWizardSubmit = useCallback((intent: WizardIntent) => {
+    const pageId = titleToFeatureId(intent.title);
+    const spec = buildSpecFromIntent(intent);
+    const createSpec = buildCreatePageSpec(intent);
+    const actionCount = Object.values(intent.rowActions).filter(Boolean).length;
+
+    const parentLabel = intent.navigation.isNewSection
+      ? intent.navigation.newSectionName
+      : navState.sections.find(s => s.id === intent.navigation.parentSection)?.label || intent.navigation.parentSection || "";
+
+    const request: FeatureRequest = {
+      id: `fr-${Date.now()}`,
+      pageId,
+      title: intent.title,
+      description: intent.description,
+      navigation: intent.navigation,
+      parentSectionLabel: parentLabel,
+      spec,
+      createPageSpec: createSpec!,
+      createdAt: new Date().toISOString(),
+      columnCount: intent.selectedFields.tableColumns.length,
+      actionCount,
+    };
+
+    setFeatureRequests(prev => [request, ...prev]);
+  }, [buildSpecFromIntent, buildCreatePageSpec, navState]);
+
+  const handleApproveRequest = useCallback((request: FeatureRequest) => {
+    const nav = request.navigation;
+    let updated = navState;
+
+    if (nav.isNewSection && nav.newSectionName) {
+      const sectionId = titleToFeatureId(nav.newSectionName);
+      const newSection: NavSection = {
+        id: sectionId,
+        label: nav.newSectionName,
+        icon: "features",
+        children: [{ id: request.pageId, label: request.title, parentId: sectionId }],
+      };
+      updated = addNewSection(updated, newSection);
+      setExpandedMenus(prev => ({ ...prev, [sectionId]: true }));
+    } else if (nav.parentSection) {
+      updated = addPageToSection(updated, nav.parentSection, {
+        id: request.pageId,
+        label: request.title,
+        parentId: nav.parentSection,
+      });
+      setExpandedMenus(prev => ({ ...prev, [nav.parentSection!]: true }));
+    }
+
+    setPageSpecs(prev => ({ ...prev, [request.pageId]: request.spec }));
+    if (request.createPageSpec) {
+      setCreatePageSpecs(prev => ({ ...prev, [request.pageId]: request.createPageSpec }));
+    }
+    setNavState(updated);
+    saveNavigation(updated);
+    setActivePage(request.pageId);
+    setFeatureRequests(prev => prev.filter(r => r.id !== request.id));
+  }, [navState]);
+
+  const handleRejectRequest = useCallback((requestId: string) => {
+    setFeatureRequests(prev => prev.filter(r => r.id !== requestId));
+  }, []);
+
+  const activePageLabel = activePage
+    ? navState.sections.find(s => s.id === activePage)?.label
+      || navState.sections.flatMap(s => s.children).find(p => p.id === activePage)?.label
+      || null
+    : null;
+
+  return (
+    <div className="flex flex-col h-screen bg-[var(--color-base-surface-secondary)]">
+      {/* Header */}
+      <header className="h-14 flex-shrink-0 bg-[var(--color-base-surface-primary)] border-b border-[var(--color-base-stroke)] flex items-center justify-between pl-[6px] pr-4">
+        <div className="flex items-center gap-3">
+          <AppSwitcher />
+        </div>
+        <div className="flex items-center gap-2">
+          <FeatureRequestsDropdown
+            requests={featureRequests}
+            onApprove={handleApproveRequest}
+            onReject={handleRejectRequest}
+            onPreview={(req) => {
+              setPreviewingRequest(req);
+              setActivePage(null);
+            }}
+          />
+          <button
+            onClick={() => setIsWizardOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-[var(--color-brand-primary)] text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            Create with Wizard
+          </button>
+        </div>
+      </header>
+
+      {/* Main Layout */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        <aside className="w-[220px] flex flex-col bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)]">
+          <div className="p-2 flex-1 overflow-y-auto">
+            {navState.sections.map((section) => (
+              <React.Fragment key={section.id}>
+                {section.children.length > 0 ? (
+                  <>
+                    <NavItem
+                      icon={getIconForSection(section.icon)}
+                      label={section.label}
+                      hasSubmenu
+                      expanded={expandedMenus[section.id] || false}
+                      onClick={() => toggleMenu(section.id)}
+                    />
+                    {expandedMenus[section.id] && (
+                      <div className="ml-2">
+                        {section.children.map((page) => (
+                          <SubNavItem
+                            key={page.id}
+                            label={page.label}
+                            active={activePage === page.id}
+                            onClick={() => { setPreviewingRequest(null); setActiveCreatePage(null); setEditingRow(null); setActivePage(page.id); }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <NavItem
+                    icon={getIconForSection(section.icon)}
+                    label={section.label}
+                    active={activePage === section.id}
+                    onClick={() => { setPreviewingRequest(null); setActiveCreatePage(null); setEditingRow(null); setActivePage(section.id); }}
+                  />
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+
+          <div className="p-2 border-t border-[var(--color-base-stroke)]">
+            <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] transition-colors">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M12 4L6 10L12 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Back to Tango Internal
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-auto bg-[var(--color-base-surface-primary)]">
+          {activeCreatePage && createPageSpecs[activeCreatePage] ? (
+            <CreatePageRenderer
+              spec={createPageSpecs[activeCreatePage]}
+              onBack={() => { setActiveCreatePage(null); setEditingRow(null); }}
+              initialFormData={editingRow && editingRow.pageId === activeCreatePage
+                ? savedTableRows[editingRow.pageId]?.[editingRow.rowIndex]
+                : undefined}
+              editRowIndex={editingRow && editingRow.pageId === activeCreatePage ? editingRow.rowIndex : undefined}
+              onSaveAndClose={(rowData, editRowIndex) => {
+                const pageId = activeCreatePage;
+                if (!pageId) return;
+                const columns = pageId.startsWith("preview-")
+                  ? (previewingRequest?.spec?.table?.columns?.filter((c: { id: string }) => c.id !== "actions") ?? [])
+                  : (pageSpecs[pageId]?.table?.columns?.filter((c: { id: string }) => c.id !== "actions") ?? []);
+                let newRow: Record<string, string>;
+                if (rowData && Object.keys(rowData).length > 0 && columns.length > 0) {
+                  newRow = {};
+                  const colIds = (columns as { id: string }[]).map(c => c.id);
+                  const bySuffix = (data: Record<string, string>, suffix: string) =>
+                    Object.entries(data).find(([k]) => k.endsWith(`-${suffix}`))?.[1];
+                  const bySuffixIgnoreCase = (data: Record<string, string>, suffix: string) =>
+                    Object.entries(data).find(([k]) => k.toLowerCase().endsWith(`-${suffix.toLowerCase()}`))?.[1];
+                  const byPrefixSuffix = (data: Record<string, string>, prefix: string, suffix: string) =>
+                    Object.entries(data).find(([k]) => k.startsWith(prefix) && k.toLowerCase().endsWith(`-${suffix.toLowerCase()}`))?.[1];
+                  for (const colId of colIds) {
+                    const colIdAlt = colId === "Title" ? "title" : colId === "title" ? "Title" : colId.charAt(0).toLowerCase() === colId.charAt(0) ? colId.charAt(0).toUpperCase() + colId.slice(1) : colId.charAt(0).toLowerCase() + colId.slice(1);
+                    const isTitleCol = colId.toLowerCase() === "title";
+                    newRow[colId] =
+                      rowData[colId] ??
+                      rowData[colIdAlt] ??
+                      bySuffix(rowData, colId) ??
+                      bySuffix(rowData, colIdAlt) ??
+                      (isTitleCol ? byPrefixSuffix(rowData, "prop-", "title") : undefined) ??
+                      (isTitleCol ? bySuffixIgnoreCase(rowData, "title") : undefined) ??
+                      "";
+                  }
+                } else if (columns.length > 0) {
+                  newRow = generateDummyData(columns as TableColumn[], 1)[0];
+                } else {
+                  newRow = { id: String(Date.now()), title: "New item" };
+                }
+                if (editRowIndex !== undefined) {
+                  newRow._createdAt = savedTableRows[pageId]?.[editRowIndex]?._createdAt ?? String(Date.now());
+                  setSavedTableRows(prev => {
+                    const list = [...(prev[pageId] || [])];
+                    if (editRowIndex >= 0 && editRowIndex < list.length) list[editRowIndex] = newRow;
+                    return { ...prev, [pageId]: list };
+                  });
+                  setEditingRow(null);
+                  setActiveCreatePage(null);
+                } else {
+                  newRow._createdAt = String(Date.now());
+                  setSavedTableRows(prev => ({
+                    ...prev,
+                    [pageId]: [...(prev[pageId] || []), newRow],
+                  }));
+                  setActiveCreatePage(null);
+                }
+              }}
+            />
+          ) : previewingRequest ? (
+            <div className="flex flex-col h-full">
+              <div className="flex-shrink-0 flex items-center justify-between gap-4 px-4 py-3 bg-[var(--color-status-warning)]/5 border-b border-[var(--color-status-warning)]/20">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="flex items-center justify-center w-8 h-8 shrink-0 rounded-lg bg-[var(--color-status-warning)]/10">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-status-warning)]">
+                      <path d="M8 3C4.5 3 1.5 6.5 1 8C1.5 9.5 4.5 13 8 13C11.5 13 14.5 9.5 15 8C14.5 6.5 11.5 3 8 3Z" stroke="currentColor" strokeWidth="1.5"/>
+                      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/>
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-[var(--color-base-primary)] truncate">
+                      Preview: {previewingRequest.title}
+                    </p>
+                    <p className="text-xs text-[var(--color-base-tertiary)] truncate">
+                      This page is pending approval and not yet in the sidebar navigation
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      handleRejectRequest(previewingRequest.id);
+                      setPreviewingRequest(null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--color-base-stroke)] text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors whitespace-nowrap"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                      <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => setPreviewingRequest(null)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--color-base-stroke)] text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors whitespace-nowrap"
+                  >
+                    Close Preview
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleApproveRequest(previewingRequest);
+                      setPreviewingRequest(null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg bg-[var(--color-status-success)] text-white hover:opacity-90 transition-opacity whitespace-nowrap"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    Approve Feature
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <PreviewRenderer
+                  spec={previewingRequest.spec}
+                  onOpenWizard={() => setIsWizardOpen(true)}
+                  savedRows={savedTableRows[`preview-${previewingRequest.pageId}`]}
+                  onEditRow={(row, rowIndex) => {
+                    const pageId = `preview-${previewingRequest.pageId}`;
+                    setCreatePageSpecs(prev => ({ ...prev, [pageId]: previewingRequest.createPageSpec }));
+                    setEditingRow({ pageId, rowIndex });
+                    setActiveCreatePage(pageId);
+                  }}
+                  onDuplicateRow={(row, _rowIndex) => {
+                    const pageId = `preview-${previewingRequest.pageId}`;
+                    const copy = { ...row, _createdAt: String(Date.now()) };
+                    const titleKey = Object.keys(copy).find(k => k.toLowerCase() === "title" || k.toLowerCase() === "name");
+                    if (titleKey && copy[titleKey]) copy[titleKey] = `${copy[titleKey]} (copy)`;
+                    setSavedTableRows(prev => ({ ...prev, [pageId]: [...(prev[pageId] || []), copy] }));
+                  }}
+                  onCreateClick={() => {
+                    if (previewingRequest.createPageSpec) {
+                      setCreatePageSpecs(prev => ({ ...prev, [`preview-${previewingRequest.pageId}`]: previewingRequest.createPageSpec }));
+                      setActiveCreatePage(`preview-${previewingRequest.pageId}`);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          ) : activePage && pageSpecs[activePage] ? (
+            <PreviewRenderer
+              spec={pageSpecs[activePage]}
+              onOpenWizard={() => setIsWizardOpen(true)}
+              savedRows={savedTableRows[activePage]}
+              onEditRow={(row, rowIndex) => {
+                setEditingRow({ pageId: activePage, rowIndex });
+                setActiveCreatePage(activePage);
+              }}
+              onDuplicateRow={(row, _rowIndex) => {
+                const copy = { ...row, _createdAt: String(Date.now()) };
+                const titleKey = Object.keys(copy).find(k => k.toLowerCase() === "title" || k.toLowerCase() === "name");
+                if (titleKey && copy[titleKey]) copy[titleKey] = `${copy[titleKey]} (copy)`;
+                setSavedTableRows(prev => ({ ...prev, [activePage]: [...(prev[activePage] || []), copy] }));
+              }}
+              onCreateClick={() => {
+                if (createPageSpecs[activePage]) {
+                  setActiveCreatePage(activePage);
+                } else {
+                  alert("No create page configured for this section.");
+                }
+              }}
+            />
+          ) : activePage ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-4">
+              <h2 className="text-lg font-semibold text-[var(--color-base-primary)] mb-2">
+                {activePageLabel || activePage}
+              </h2>
+              <p className="text-sm text-[var(--color-base-tertiary)] mb-4">
+                No table configured yet
+              </p>
+              <button
+                onClick={() => setIsWizardOpen(true)}
+                className="px-4 py-2 bg-[var(--color-brand-primary)] text-white text-sm rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                Create with Wizard
+              </button>
+            </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-center px-4">
+              <img
+                src="/placeholder-no-preview.png"
+                alt="May I click your button?"
+                className="max-w-[320px] w-full rounded-xl object-cover mb-6 shadow-md"
+              />
+              <button
+                onClick={() => setIsWizardOpen(true)}
+                className="mt-2 px-5 py-2.5 bg-[var(--color-brand-primary)] text-white rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                Create with Wizard
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
+
+      <WizardModal
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
+        onSubmit={handleWizardSubmit}
+      />
+    </div>
+  );
+}

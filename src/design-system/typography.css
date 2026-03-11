@@ -1,0 +1,179 @@
+/**
+ * Design System Typography CSS - Tango Internal 2.0
+ * 
+ * Import this file in your global styles.
+ * Use classes: .text-hero-1, .text-headline-1, .text-paragraph-1, etc.
+ */
+
+/* ============================================
+   FONT FACE (Google Fonts alternative)
+   ============================================ */
+/* 
+   Add this to your <head> or use @import:
+   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+*/
+
+:root {
+  /* Font Family */
+  --font-family-primary: 'Roboto', Arial, Helvetica, sans-serif;
+  
+  /* Font Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+}
+
+/* ============================================
+   HERO STYLES
+   Large display text for marketing/landing pages
+   ============================================ */
+
+.text-hero-1 {
+  font-family: var(--font-family-primary);
+  font-size: 48px;
+  line-height: 64px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.text-hero-2 {
+  font-family: var(--font-family-primary);
+  font-size: 40px;
+  line-height: 56px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.text-hero-3 {
+  font-family: var(--font-family-primary);
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.text-hero-4 {
+  font-family: var(--font-family-primary);
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+/* ============================================
+   HEADLINE STYLES
+   Section headers and titles
+   ============================================ */
+
+.text-headline-1 {
+  font-family: var(--font-family-primary);
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.text-headline-2 {
+  font-family: var(--font-family-primary);
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.text-headline-3 {
+  font-family: var(--font-family-primary);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.text-headline-4 {
+  font-family: var(--font-family-primary);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+/* ============================================
+   PARAGRAPH STYLES
+   Body text and content
+   ============================================ */
+
+.text-paragraph-1 {
+  font-family: var(--font-family-primary);
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: var(--font-weight-regular);
+  letter-spacing: 0;
+}
+
+.text-paragraph-2 {
+  font-family: var(--font-family-primary);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: var(--font-weight-regular);
+  letter-spacing: 0;
+}
+
+.text-paragraph-3 {
+  font-family: var(--font-family-primary);
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: var(--font-weight-regular);
+  letter-spacing: 0;
+}
+
+/* ============================================
+   LABEL STYLES
+   Small UI text, badges, buttons
+   ============================================ */
+
+.text-label-normal {
+  font-family: var(--font-family-primary);
+  font-size: 12px;
+  line-height: 12px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.text-label-tiny {
+  font-family: var(--font-family-primary);
+  font-size: 10px;
+  line-height: 10px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+  text-transform: capitalize;
+}
+
+/* ============================================
+   MODIFIERS
+   Link and strikethrough variants
+   ============================================ */
+
+.text-link {
+  text-decoration: underline;
+  text-decoration-skip-ink: none;
+  cursor: pointer;
+}
+
+.text-link:hover {
+  opacity: 0.8;
+}
+
+.text-striked {
+  text-decoration: line-through;
+  text-decoration-skip-ink: none;
+}
+
+/* ============================================
+   UTILITY - Color variants
+   Combine with color classes from colors.css
+   ============================================ */
+
+/* Text colors are defined in colors.css:
+   .text-primary, .text-secondary, .text-tertiary,
+   .text-danger, .text-warning, .text-success, .text-info
+*/

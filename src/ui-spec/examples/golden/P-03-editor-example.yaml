@@ -1,0 +1,409 @@
+# UI Spec Example: P-03 Detail Editor with Properties Panel
+# This example shows a Campaign editor form
+# Golden UI Spec
+# Pattern: P-03 Detail Editor with Properties Panel
+# Expected warnings:
+# - CONS-003 (back button not in action header)
+# - CONS-004 (save button not in action header)
+# - CONS-005 (save close button not in action header)
+# - CONS-006 (status toggle not in properties panel)
+# - CONS-007 (details section not in properties panel)
+# - CONS-008 (audience section not in properties panel)
+# - CONS-009 (schedule section not in properties panel)
+# - CONS-010 (tags section not in properties panel)
+
+version: "1.0"
+id: campaign-editor
+title: Edit Campaign
+description: Detail editor for campaign configuration
+
+root_pattern: P-03
+patterns_used:
+  - P-01
+  - P-03
+  - P-10
+  - P-14
+  - P-05
+
+# ============================================
+# ZONES
+# ============================================
+
+zones:
+  # P-03 zone-a: Action Header
+  zone-a:
+    pattern_id: P-03
+    components:
+      - id: back-button
+        key: back-to-list
+        props:
+          label: "Back"
+        actions:
+          - id: navigate-back
+            type: navigate
+            target: "/campaigns"
+            
+      - id: page-title
+        key: campaign-title
+        data_binding:
+          source: campaign-datasource
+          path: "name"
+        props:
+          fallback: "New Campaign"
+          
+      - id: status-badge
+        key: campaign-status
+        data_binding:
+          source: campaign-datasource
+          path: "status"
+          
+      - id: save-button
+        key: save-btn
+        props:
+          label: "Save"
+        actions:
+          - id: save-campaign
+            type: api_call
+            method: PUT
+            target: "/api/campaigns/{{id}}"
+            payload:
+              $ref: form-data
+              
+      - id: save-close-button
+        key: save-close-btn
+        props:
+          label: "Save & Close"
+        actions:
+          - id: save-and-close
+            type: api_call
+            method: PUT
+            target: "/api/campaigns/{{id}}"
+            payload:
+              $ref: form-data
+            on_success:
+              id: navigate-back
+              type: navigate
+              target: "/campaigns"
+
+  # P-03 zone-b: Main Content
+  zone-b:
+    pattern_id: P-03
+    components:
+      # Basic Info Section
+      - id: form-section
+        key: basic-info
+        props:
+          title: "Basic Information"
+        children:
+          - id: input-field
+            key: campaign-name
+            props:
+              label: "Campaign Name"
+              placeholder: "Enter campaign name"
+              required: true
+            data_binding:
+              source: campaign-datasource
+              path: "name"
+              
+          - id: textarea-field
+            key: campaign-description
+            props:
+              label: "Description"
+              placeholder: "Enter campaign description"
+              rows: 4
+            data_binding:
+              source: campaign-datasource
+              path: "description"
+              
+          - id: select-field
+            key: campaign-type
+            props:
+              label: "Campaign Type"
+              options:
+                - { value: "promo", label: "Promotional" }
+                - { value: "loyalty", label: "Loyalty" }
+                - { value: "seasonal", label: "Seasonal" }
+            data_binding:
+              source: campaign-datasource
+              path: "type"
+
+      # Targeting Section (Accordion)
+      - id: accordion-section
+        key: targeting-section
+        props:
+          title: "Targeting"
+          default_expanded: false
+        children:
+          - id: select-field
+            key: target-audience
+            props:
+              label: "Target Audience"
+              multi_select: true
+            data_binding:
+              source: audiences-datasource
+              path: "items"
+              
+          - id: toggle-field
+            key: geo-targeting
+            props:
+              label: "Enable Geo-Targeting"
+            data_binding:
+              source: campaign-datasource
+              path: "geo_enabled"
+              
+          - id: select-field
+            key: target-countries
+            props:
+              label: "Countries"
+              multi_select: true
+            data_binding:
+              source: countries-datasource
+              path: "items"
+            condition:
+              if: "geo_enabled === true"
+              show: true
+
+      # Content Section (Accordion)
+      - id: accordion-section
+        key: content-section
+        props:
+          title: "Content"
+          badge: "3 items"
+          default_expanded: true
+        children:
+          - id: upload-area
+            key: campaign-image
+            props:
+              label: "Campaign Image"
+              accept: ["image/png", "image/jpeg"]
+              max_size: 5242880
+            data_binding:
+              source: campaign-datasource
+              path: "image_url"
+              
+          - id: input-field
+            key: cta-text
+            props:
+              label: "Call to Action Text"
+              placeholder: "e.g., Learn More"
+            data_binding:
+              source: campaign-datasource
+              path: "cta_text"
+              
+          - id: input-field
+            key: cta-url
+            props:
+              label: "CTA Link"
+              placeholder: "https://..."
+              type: url
+            data_binding:
+              source: campaign-datasource
+              path: "cta_url"
+
+      # Preview Area
+      - id: preview-area
+        key: campaign-preview
+        props:
+          title: "Preview"
+        data_binding:
+          source: campaign-datasource
+
+  # P-03 zone-c: Properties Panel
+  zone-c:
+    pattern_id: P-03
+    components:
+      # Status Toggle (uses P-14)
+      - id: status-toggle
+        key: campaign-active-toggle
+        props:
+          label: "Campaign Status"
+          on_label: "Active"
+          off_label: "Inactive"
+        data_binding:
+          source: campaign-datasource
+          path: "is_active"
+        actions:
+          - id: toggle-status
+            type: api_call
+            method: PATCH
+            target: "/api/campaigns/{{id}}/status"
+
+      # Details Section
+      - id: details-section
+        key: campaign-details
+        props:
+          title: "Details"
+        children:
+          - id: text-cell
+            key: detail-id
+            props:
+              label: "Campaign ID"
+            data_binding:
+              source: campaign-datasource
+              path: "id"
+              
+          - id: text-cell
+            key: detail-created
+            props:
+              label: "Created"
+            data_binding:
+              source: campaign-datasource
+              path: "created_at"
+              transform: formatDate
+              
+          - id: user-chip
+            key: detail-author
+            props:
+              label: "Created by"
+            data_binding:
+              source: campaign-datasource
+              path: "author"
+
+      # Schedule Section
+      - id: schedule-section
+        key: campaign-schedule
+        props:
+          title: "Schedule"
+        children:
+          - id: date-range-picker
+            key: campaign-dates
+            props:
+              start_label: "Start Date"
+              end_label: "End Date"
+            data_binding:
+              source: campaign-datasource
+              path: "schedule"
+
+      # Tags Section
+      - id: tags-section
+        key: campaign-tags
+        props:
+          title: "Tags"
+        children:
+          - id: badge
+            key: tag-item
+            props:
+              removable: true
+            data_binding:
+              source: campaign-datasource
+              path: "tags[]"
+
+      # Delete Button (at bottom)
+      - id: delete-button
+        key: delete-campaign-btn
+        props:
+          label: "Delete Campaign"
+        actions:
+          - id: open-delete-confirm
+            type: open_overlay
+            target: confirm-delete
+        condition:
+          permission: campaigns.delete
+
+# ============================================
+# DATASOURCES
+# ============================================
+
+datasources:
+  - id: campaign-datasource
+    type: rest
+    endpoint: "/api/campaigns/{{route.id}}"
+    method: GET
+    response_mapping:
+      data: "data"
+
+  - id: audiences-datasource
+    type: rest
+    endpoint: "/api/audiences"
+    method: GET
+    response_mapping:
+      items: "data"
+
+  - id: countries-datasource
+    type: static
+    static_data:
+      - { value: "US", label: "United States" }
+      - { value: "UK", label: "United Kingdom" }
+      - { value: "DE", label: "Germany" }
+      - { value: "FR", label: "France" }
+
+# ============================================
+# PERMISSIONS
+# ============================================
+
+permissions:
+  required_roles:
+    - admin
+    - campaign-manager
+    
+  component_rules:
+    - target: delete-campaign-btn
+      permission: campaigns.delete
+      fallback: hide
+      
+  action_rules:
+    - target: save-campaign
+      permission: campaigns.update
+      fallback: disable
+      
+    - target: open-delete-confirm
+      permission: campaigns.delete
+      fallback: hide
+
+# ============================================
+# OVERLAYS
+# ============================================
+
+overlays:
+  - id: confirm-delete
+    pattern_id: P-05
+    title: "Delete Campaign"
+    variant: danger
+    size: medium
+    
+    zones:
+      zone-a:
+        pattern_id: P-05
+        components:
+          - id: title
+            props:
+              text: "Delete Campaign"
+              
+      zone-b:
+        pattern_id: P-05
+        components:
+          - id: warning-text
+            props:
+              text: "Are you sure you want to delete this campaign? All associated data will be permanently removed."
+              
+      zone-c:
+        pattern_id: P-05
+        components:
+          - id: cancel-button
+            key: cancel-delete
+            props:
+              label: "Cancel"
+            actions:
+              - id: close-delete-dialog
+                type: close_overlay
+                target: confirm-delete
+                
+          - id: primary-button
+            key: confirm-delete-btn
+            props:
+              label: "Delete Campaign"
+              variant: danger
+            actions:
+              - id: execute-delete
+                type: api_call
+                method: DELETE
+                target: "/api/campaigns/{{id}}"
+                on_success:
+                  id: navigate-to-list
+                  type: navigate
+                  target: "/campaigns"
+                  
+    open_triggers:
+      - open-delete-confirm
+    close_triggers:
+      - close-delete-dialog

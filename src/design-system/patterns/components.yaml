@@ -1,0 +1,1149 @@
+# Component Registry
+# Extracted from UI analysis of 430 screens
+# Last updated: 2026-01-25
+
+version: "1.0"
+
+# ============================================
+# EXISTING COMPONENTS
+# Components already implemented in src/components/ui/
+# ============================================
+
+existing_components:
+
+  # ------------------------------------
+  # BUTTONS
+  # ------------------------------------
+  
+  - id: button
+    name: Button
+    aka: ["action button", "submit button", "CTA", "call to action"]
+    file: Button.tsx
+    atomic: true
+    
+    variants:
+      - primary
+      - secondary
+      - tertiary
+      - danger
+      - ghost
+    
+    sizes:
+      - sm
+      - md
+    
+    states:
+      - default
+      - hover
+      - pressed
+      - loading
+      - disabled
+    
+    props:
+      - variant: ButtonVariant
+      - size: "sm" | "md"
+      - disabled: boolean
+      - loading: boolean
+      - leftIcon: ReactNode
+      - rightIcon: ReactNode
+    
+    usage:
+      when:
+        - "Primary actions in forms"
+        - "Navigation triggers"
+        - "Submit/Cancel pairs"
+      constraints:
+        - "Max 2 primary buttons per view"
+        - "Danger variant requires confirmation"
+    
+  - id: icon-button
+    name: IconButton
+    aka: ["action button", "toolbar button", "icon-only button"]
+    file: IconButton.tsx
+    atomic: true
+    
+    variants:
+      - primary
+      - secondary
+      - ghost
+    
+    states:
+      - default
+      - hover
+      - pressed
+      - disabled
+    
+    props:
+      - icon: ReactNode
+      - variant: string
+      - size: "sm" | "md"
+      - tooltip: string
+    
+    usage:
+      when:
+        - "Space-constrained actions"
+        - "Toolbars"
+        - "Table row actions"
+      constraints:
+        - "Always include tooltip for accessibility"
+        - "Icon must be recognizable"
+
+  - id: button-group
+    name: ButtonGroup
+    aka: ["action group", "segmented control", "button set"]
+    file: ButtonGroup.tsx
+    atomic: false
+    
+    children:
+      - ButtonGroupItem
+    
+    props:
+      - items: ButtonGroupItemProps[]
+    
+    usage:
+      when:
+        - "Related actions grouped together"
+        - "Mutually exclusive options"
+      constraints:
+        - "Max 5 items per group"
+        - "All items same size"
+
+  - id: button-bar
+    name: ButtonBar
+    aka: ["action bar", "toolbar", "command bar"]
+    file: ButtonBar.tsx
+    atomic: false
+    
+    children:
+      - ButtonBarItem
+    
+    usage:
+      when:
+        - "Multiple actions in header"
+        - "Bulk action controls"
+      constraints:
+        - "Primary action rightmost"
+
+  # ------------------------------------
+  # FORM INPUTS
+  # ------------------------------------
+
+  - id: input
+    name: Input
+    aka: ["text field", "text input", "form field", "textbox"]
+    file: Input.tsx
+    atomic: true
+    
+    variants:
+      - text
+      - search
+      - password
+    
+    states:
+      - default
+      - focus
+      - error
+      - disabled
+    
+    props:
+      - label: string
+      - placeholder: string
+      - value: string
+      - error: string
+      - disabled: boolean
+      - leftIcon: ReactNode
+      - rightIcon: ReactNode
+    
+    usage:
+      when:
+        - "Single-line text input"
+        - "Search fields"
+        - "Form fields"
+      constraints:
+        - "Label required for accessibility"
+        - "Error message below field"
+
+  - id: textarea
+    name: Textarea
+    aka: ["text area", "multiline input", "comment field"]
+    file: Input.tsx
+    atomic: true
+    
+    props:
+      - label: string
+      - rows: number
+      - maxLength: number
+    
+    usage:
+      when:
+        - "Multi-line text input"
+        - "Description fields"
+        - "Comments"
+
+  - id: search-input
+    name: SearchInput
+    aka: ["search field", "search box", "find input"]
+    file: Input.tsx
+    atomic: true
+    
+    props:
+      - placeholder: string
+      - onSearch: function
+      - debounceMs: number
+    
+    usage:
+      when:
+        - "Filtering lists/tables"
+        - "Global search"
+      constraints:
+        - "Debounce 300ms default"
+
+  - id: password-input
+    name: PasswordInput
+    aka: ["password field", "secret input"]
+    file: Input.tsx
+    atomic: true
+    
+    features:
+      - show/hide toggle
+    
+    usage:
+      when:
+        - "Password entry"
+        - "Secret tokens"
+
+  - id: select-input
+    name: SelectInput
+    aka: ["dropdown trigger", "select field", "combobox trigger"]
+    file: Input.tsx
+    atomic: true
+    
+    props:
+      - label: string
+      - value: string
+      - placeholder: string
+    
+    usage:
+      when:
+        - "Trigger for Select menu"
+        - "Display selected value"
+
+  - id: checkbox
+    name: Checkbox
+    aka: ["check box", "tick box", "boolean input"]
+    file: Checkbox.tsx
+    atomic: true
+    
+    states:
+      - unchecked
+      - checked
+      - indeterminate
+      - disabled
+    
+    props:
+      - checked: boolean
+      - label: string
+      - disabled: boolean
+    
+    usage:
+      when:
+        - "Multiple selections"
+        - "Boolean toggles with label"
+        - "Terms acceptance"
+
+  - id: checkbox-group
+    name: CheckboxGroup
+    aka: ["checkbox list", "multi-select options"]
+    file: Checkbox.tsx
+    atomic: false
+    
+    children:
+      - Checkbox
+    
+    usage:
+      when:
+        - "Multiple related checkboxes"
+        - "Form sections"
+
+  - id: radio
+    name: Radio
+    aka: ["radio button", "option button", "single select"]
+    file: Radio.tsx
+    atomic: true
+    
+    states:
+      - unselected
+      - selected
+      - disabled
+    
+    usage:
+      when:
+        - "Mutually exclusive options"
+        - "Single selection required"
+      constraints:
+        - "Always use within RadioGroup"
+
+  - id: radio-group
+    name: RadioGroup
+    aka: ["radio button group", "option group"]
+    file: Radio.tsx
+    atomic: false
+    
+    children:
+      - Radio
+    
+    props:
+      - name: string
+      - value: string
+      - onChange: function
+    
+    usage:
+      when:
+        - "2-5 mutually exclusive options"
+      constraints:
+        - "One option pre-selected by default"
+
+  - id: toggle
+    name: Toggle
+    aka: ["switch", "toggle switch", "on/off switch"]
+    file: Toggle.tsx
+    atomic: true
+    
+    states:
+      - off
+      - on
+      - disabled
+    
+    props:
+      - checked: boolean
+      - onChange: function
+      - disabled: boolean
+    
+    usage:
+      when:
+        - "Binary state changes"
+        - "Enable/disable features"
+        - "Status toggles"
+      constraints:
+        - "Effect should be immediate"
+        - "No confirmation needed for non-destructive"
+
+  # ------------------------------------
+  # SELECT & PICKERS
+  # ------------------------------------
+
+  - id: select
+    name: Select
+    aka: ["dropdown", "select menu", "picker", "combobox"]
+    file: Select.tsx
+    atomic: false
+    
+    children:
+      - SelectMenu
+      - SelectOptionItem
+    
+    variants:
+      - SimpleSelect
+      - MultiSelect
+    
+    props:
+      - options: SelectOption[]
+      - value: string | string[]
+      - searchable: boolean
+      - multiSelect: boolean
+    
+    usage:
+      when:
+        - "Selecting from predefined options"
+        - "Filtering by category"
+      constraints:
+        - "Max 10 visible options before scroll"
+        - "Search for > 10 options"
+
+  - id: date-picker
+    name: DatePicker
+    aka: ["calendar picker", "date selector", "date input"]
+    file: DatePicker.tsx
+    atomic: false
+    
+    variants:
+      - single
+      - range
+    
+    props:
+      - value: Date | [Date, Date]
+      - onChange: function
+      - minDate: Date
+      - maxDate: Date
+    
+    usage:
+      when:
+        - "Date selection"
+        - "Date range filtering"
+        - "Schedule configuration"
+
+  # ------------------------------------
+  # DATA DISPLAY
+  # ------------------------------------
+
+  - id: chip
+    name: Chip
+    aka: ["tag", "badge", "label", "pill"]
+    file: Chip.tsx
+    atomic: true
+    
+    variants:
+      - filled
+      - outlined
+      - selected
+      - removable
+    
+    props:
+      - label: string
+      - variant: string
+      - onRemove: function
+    
+    usage:
+      when:
+        - "Status indicators"
+        - "Tags/categories"
+        - "User mentions"
+        - "Filter chips"
+
+  - id: avatar
+    name: Avatar
+    aka: ["profile picture", "user image", "profile avatar"]
+    file: Avatar.tsx
+    atomic: true
+    
+    sizes:
+      - xs (16px)
+      - sm (24px)
+      - md (32px)
+      - lg (40px)
+      - xl (56px)
+    
+    props:
+      - src: string
+      - name: string
+      - size: AvatarSize
+    
+    fallback: "Initials from name"
+    
+    usage:
+      when:
+        - "User identification"
+        - "Author attribution"
+        - "Contact display"
+
+  - id: avatar-group
+    name: AvatarGroup
+    aka: ["avatar stack", "user group", "faces"]
+    file: Avatar.tsx
+    atomic: false
+    
+    children:
+      - Avatar
+    
+    props:
+      - max: number
+      - size: AvatarSize
+    
+    usage:
+      when:
+        - "Multiple users"
+        - "Collaborators display"
+      constraints:
+        - "Show +N for overflow"
+
+  - id: tooltip
+    name: Tooltip
+    aka: ["hint", "hover tip", "info popup"]
+    file: Tooltip.tsx
+    atomic: true
+    
+    variants:
+      - simple
+      - interactive
+    
+    positions:
+      - top
+      - bottom
+      - left
+      - right
+    
+    props:
+      - content: ReactNode
+      - position: TooltipPosition
+      - delay: number
+    
+    usage:
+      when:
+        - "Icon-only buttons"
+        - "Truncated text"
+        - "Additional context"
+      constraints:
+        - "Max 2 lines of text"
+        - "Delay 300ms default"
+
+  - id: notification
+    name: Notification
+    aka: ["toast", "alert", "snackbar", "message"]
+    file: Notification.tsx
+    atomic: true
+    
+    variants:
+      - success
+      - error
+      - warning
+      - info
+    
+    props:
+      - title: string
+      - message: string
+      - variant: NotificationVariant
+      - duration: number
+      - onClose: function
+    
+    usage:
+      when:
+        - "Action confirmation"
+        - "Error messages"
+        - "System status"
+      constraints:
+        - "Auto-dismiss after 5s (success/info)"
+        - "Errors require manual dismiss"
+
+  # ------------------------------------
+  # LIST & TABLE
+  # ------------------------------------
+
+  - id: list
+    name: List
+    aka: ["item list", "list view", "vertical list"]
+    file: List.tsx
+    atomic: false
+    
+    children:
+      - ListItem
+    
+    props:
+      - selectable: boolean
+      - size: "sm" | "md"
+    
+    usage:
+      when:
+        - "Vertical item display"
+        - "Settings lists"
+        - "Selection lists"
+
+  - id: list-item
+    name: ListItem
+    aka: ["list row", "list entry"]
+    file: List.tsx
+    atomic: false
+    
+    children:
+      - ListCheckbox
+      - ListAvatar
+      - ListIcon
+      - ListBadge
+      - ListValue
+      - ListActionButton
+    
+    states:
+      - default
+      - hover
+      - selected
+    
+    usage:
+      when:
+        - "Individual list entry"
+        - "Complex list content"
+
+  # ------------------------------------
+  # NAVIGATION
+  # ------------------------------------
+
+  - id: sidebar
+    name: Sidebar
+    aka: ["side navigation", "nav panel", "left menu"]
+    file: Sidebar.tsx
+    atomic: false
+    
+    children:
+      - SidebarGroup
+      - SidebarItem
+      - SidebarSubmenu
+      - SidebarDivider
+      - SidebarFooter
+    
+    props:
+      - collapsed: boolean
+      - activeItem: string
+    
+    usage:
+      when:
+        - "Primary application navigation"
+        - "Multi-section apps"
+      constraints:
+        - "Always visible in shell"
+        - "One active item at a time"
+
+  - id: sidebar-item
+    name: SidebarItem
+    aka: ["nav item", "menu item", "navigation link"]
+    file: Sidebar.tsx
+    atomic: true
+    
+    states:
+      - default
+      - hover
+      - active
+    
+    props:
+      - icon: ReactNode
+      - label: string
+      - href: string
+      - badge: ReactNode
+    
+    usage:
+      when:
+        - "Navigation links"
+        - "Section headers"
+
+  # ------------------------------------
+  # OVERLAYS
+  # ------------------------------------
+
+  - id: modal
+    name: Modal
+    aka: ["dialog", "popup", "overlay", "lightbox"]
+    file: Modal.tsx
+    atomic: false
+    
+    children:
+      - ModalContent
+      - ModalHeader
+      - ModalBody
+      - ModalFooter
+    
+    sizes:
+      - sm (200px)
+      - lg (400px)
+    
+    props:
+      - isOpen: boolean
+      - onClose: function
+      - size: "sm" | "lg"
+    
+    usage:
+      when:
+        - "Focused interactions"
+        - "Confirmations"
+        - "Quick forms"
+      constraints:
+        - "Close on Escape key"
+        - "Close on backdrop click"
+        - "Trap focus within modal"
+
+  - id: confirm-modal
+    name: ConfirmModal
+    aka: ["confirmation dialog", "confirm popup"]
+    file: Modal.tsx
+    atomic: false
+    
+    props:
+      - title: string
+      - description: string
+      - confirmText: string
+      - cancelText: string
+      - variant: "default" | "danger"
+      - onConfirm: function
+      - onClose: function
+    
+    usage:
+      when:
+        - "Destructive actions"
+        - "Irreversible operations"
+
+  - id: popup
+    name: Popup
+    aka: ["small modal", "action popup"]
+    file: Modal.tsx
+    atomic: false
+    
+    usage:
+      when:
+        - "Quick confirmations"
+        - "Simple choices"
+
+# ============================================
+# REQUIRED COMPONENTS
+# Components needed but not yet implemented
+# ============================================
+
+required_components:
+
+  # ------------------------------------
+  # HIGH PRIORITY
+  # ------------------------------------
+
+  - id: data-table
+    name: DataTable
+    aka: ["table", "data grid", "grid view"]
+    priority: high
+    
+    description: "Full-featured data table with sorting, selection, and actions"
+    
+    children:
+      - TableHeader
+      - TableRow
+      - TableCell
+      - TablePagination
+    
+    features:
+      - sortable columns
+      - row selection (checkbox)
+      - row actions
+      - column resizing
+      - sticky header
+    
+    props:
+      - columns: ColumnDef[]
+      - data: any[]
+      - selectable: boolean
+      - sortable: boolean
+      - onRowClick: function
+      - onSelectionChange: function
+    
+    usage:
+      when:
+        - "Displaying collections (P-02)"
+        - "CRUD operations"
+        - "Bulk actions needed"
+    
+    patterns:
+      - P-02
+
+  - id: pagination
+    name: Pagination
+    aka: ["pager", "page navigation", "page controls"]
+    priority: high
+    
+    description: "Navigation controls for paginated data"
+    
+    props:
+      - currentPage: number
+      - totalPages: number
+      - pageSize: number
+      - totalItems: number
+      - onPageChange: function
+      - onPageSizeChange: function
+    
+    variants:
+      - simple (prev/next only)
+      - full (with page numbers)
+    
+    usage:
+      when:
+        - "Data exceeds viewport"
+        - "Large datasets"
+    
+    patterns:
+      - P-02
+      - P-07
+
+  - id: tabs
+    name: Tabs
+    aka: ["tab group", "tab bar", "segmented tabs"]
+    priority: high
+    
+    description: "Horizontal tab navigation for content sections"
+    
+    children:
+      - Tab
+      - TabPanel
+    
+    props:
+      - activeTab: string
+      - onChange: function
+    
+    variants:
+      - underline
+      - pills
+      - segment
+    
+    usage:
+      when:
+        - "Content sections"
+        - "Filter categories"
+        - "Sub-navigation"
+    
+    patterns:
+      - P-02
+      - P-04
+
+  - id: accordion
+    name: Accordion
+    aka: ["collapsible", "expandable section", "disclosure"]
+    priority: high
+    
+    description: "Expandable/collapsible content sections"
+    
+    children:
+      - AccordionItem
+      - AccordionHeader
+      - AccordionContent
+    
+    props:
+      - allowMultiple: boolean
+      - defaultExpanded: string[]
+    
+    usage:
+      when:
+        - "Long forms (P-03)"
+        - "Grouped settings"
+        - "FAQ patterns"
+    
+    patterns:
+      - P-03
+      - P-10
+
+  - id: card
+    name: Card
+    aka: ["content card", "tile", "panel"]
+    priority: high
+    
+    description: "Container for grouped content"
+    
+    variants:
+      - default
+      - selectable
+      - interactive
+    
+    children:
+      - CardImage
+      - CardContent
+      - CardFooter
+    
+    props:
+      - selected: boolean
+      - onClick: function
+    
+    usage:
+      when:
+        - "Card grids (P-04)"
+        - "Visual item selection"
+        - "Content grouping"
+    
+    patterns:
+      - P-04
+
+  # ------------------------------------
+  # MEDIUM PRIORITY
+  # ------------------------------------
+
+  - id: empty-state
+    name: EmptyState
+    aka: ["no data", "blank state", "placeholder"]
+    priority: medium
+    
+    description: "Placeholder when no content available"
+    
+    props:
+      - icon: ReactNode
+      - title: string
+      - description: string
+      - action: ReactNode
+    
+    usage:
+      when:
+        - "Empty tables"
+        - "No search results"
+        - "First-time use"
+
+  - id: loading-skeleton
+    name: Skeleton
+    aka: ["loading placeholder", "shimmer", "skeleton loader"]
+    priority: medium
+    
+    description: "Loading placeholder mimicking content shape"
+    
+    variants:
+      - text
+      - circle
+      - rectangle
+      - table-row
+    
+    usage:
+      when:
+        - "Content loading"
+        - "Lazy loading"
+
+  - id: drag-handle
+    name: DragHandle
+    aka: ["grip", "reorder handle", "drag grip"]
+    priority: medium
+    
+    description: "Handle for drag-and-drop reordering"
+    
+    usage:
+      when:
+        - "Orderable lists (P-09)"
+        - "Sortable items"
+    
+    patterns:
+      - P-09
+
+  - id: copy-button
+    name: CopyButton
+    aka: ["copy to clipboard", "clipboard button"]
+    priority: medium
+    
+    description: "Button that copies adjacent content to clipboard"
+    
+    props:
+      - value: string
+      - onCopy: function
+    
+    feedback: "Shows checkmark after copy"
+    
+    usage:
+      when:
+        - "IDs"
+        - "URLs"
+        - "API keys"
+
+  - id: status-badge
+    name: StatusBadge
+    aka: ["status indicator", "state badge"]
+    priority: medium
+    
+    description: "Visual indicator of entity status"
+    
+    variants:
+      - active (green)
+      - inactive (gray)
+      - pending (yellow)
+      - error (red)
+      - draft (blue)
+    
+    usage:
+      when:
+        - "Table status column"
+        - "Entity headers"
+
+  - id: file-upload
+    name: FileUpload
+    aka: ["upload area", "drop zone", "file picker"]
+    priority: medium
+    
+    description: "Drag-and-drop file upload area"
+    
+    props:
+      - accept: string[]
+      - maxSize: number
+      - multiple: boolean
+      - onUpload: function
+    
+    usage:
+      when:
+        - "Image uploads"
+        - "CSV imports"
+        - "Document attachments"
+
+  - id: order-buttons
+    name: OrderButtons
+    aka: ["priority buttons", "move up/down"]
+    priority: medium
+    
+    description: "Buttons for moving items to top/bottom"
+    
+    children:
+      - ToTopButton
+      - ToBottomButton
+    
+    usage:
+      when:
+        - "Priority lists (P-09)"
+        - "Manual ordering"
+    
+    patterns:
+      - P-09
+
+  # ------------------------------------
+  # LOW PRIORITY
+  # ------------------------------------
+
+  - id: device-mockup
+    name: DeviceMockup
+    aka: ["phone frame", "device preview", "mobile frame"]
+    priority: low
+    
+    description: "Device frame for preview content"
+    
+    variants:
+      - phone
+      - tablet
+    
+    props:
+      - device: "phone" | "tablet"
+      - content: ReactNode
+    
+    usage:
+      when:
+        - "Preview overlays (P-08)"
+        - "Mobile previews"
+    
+    patterns:
+      - P-08
+
+  - id: breadcrumb
+    name: Breadcrumb
+    aka: ["breadcrumbs", "path navigation", "trail"]
+    priority: low
+    
+    description: "Hierarchical navigation trail"
+    
+    children:
+      - BreadcrumbItem
+    
+    usage:
+      when:
+        - "Deep navigation"
+        - "Context indication"
+
+  - id: progress-bar
+    name: ProgressBar
+    aka: ["progress indicator", "loading bar"]
+    priority: low
+    
+    variants:
+      - determinate
+      - indeterminate
+    
+    props:
+      - value: number
+      - max: number
+    
+    usage:
+      when:
+        - "Upload progress"
+        - "Multi-step processes"
+
+  - id: stepper
+    name: Stepper
+    aka: ["wizard", "multi-step", "step indicator"]
+    priority: low
+    
+    children:
+      - Step
+    
+    props:
+      - currentStep: number
+      - steps: StepDef[]
+    
+    usage:
+      when:
+        - "Multi-step forms"
+        - "Onboarding flows"
+
+  - id: context-menu
+    name: ContextMenu
+    aka: ["right-click menu", "dropdown menu"]
+    priority: low
+    
+    children:
+      - MenuItem
+      - MenuDivider
+    
+    usage:
+      when:
+        - "Right-click actions"
+        - "Additional options"
+
+# ============================================
+# COMPONENT RELATIONSHIPS
+# ============================================
+
+relationships:
+  compositions:
+    - parent: DataTable
+      children: [TableHeader, TableRow, TableCell, Pagination]
+      
+    - parent: Sidebar
+      children: [SidebarItem, SidebarSubmenu, SidebarDivider]
+      
+    - parent: Modal
+      children: [ModalHeader, ModalBody, ModalFooter]
+      
+    - parent: Accordion
+      children: [AccordionItem, AccordionHeader, AccordionContent]
+      
+    - parent: Card
+      children: [CardImage, CardContent, CardFooter]
+
+  pattern_mapping:
+    P-02:
+      required: [DataTable, Pagination, Tabs]
+      optional: [EmptyState, StatusBadge, CopyButton]
+      
+    P-03:
+      required: [Accordion, Toggle, Button]
+      optional: [FileUpload, Tabs, Card]
+      
+    P-04:
+      required: [Card, Tabs]
+      optional: [SearchInput, Checkbox]
+      
+    P-07:
+      required: [List, Checkbox, Pagination]
+      optional: [SearchInput, EmptyState]
+      
+    P-08:
+      required: [DeviceMockup]
+      optional: [Tabs, Card]
+      
+    P-09:
+      required: [DragHandle, OrderButtons, Toggle]
+      optional: [Accordion]
+
+# ============================================
+# IMPLEMENTATION PRIORITY
+# ============================================
+
+implementation_order:
+  phase_1:
+    name: "Core Table Components"
+    components:
+      - DataTable
+      - Pagination
+      - Tabs
+    patterns_enabled: [P-02]
+    
+  phase_2:
+    name: "Editor Components"
+    components:
+      - Accordion
+      - Card
+      - FileUpload
+    patterns_enabled: [P-03, P-04]
+    
+  phase_3:
+    name: "Interaction Components"
+    components:
+      - DragHandle
+      - OrderButtons
+      - CopyButton
+      - StatusBadge
+    patterns_enabled: [P-09]
+    
+  phase_4:
+    name: "Preview & Polish"
+    components:
+      - DeviceMockup
+      - EmptyState
+      - Skeleton
+      - Breadcrumb
+    patterns_enabled: [P-08]

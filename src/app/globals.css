@@ -1,0 +1,45 @@
+@import "tailwindcss";
+@import "../design-system/colors.css";
+@import "../design-system/typography.css";
+
+:root {
+  --background: var(--color-base-surface-primary);
+  --foreground: var(--color-base-primary);
+  
+  /* Status Colors */
+  --color-status-success: #4bb73a;
+  --color-status-warning: #ffa011;
+  --color-status-error: #ff3e14;
+  --color-status-info: #5466ff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-roboto);
+  --font-mono: monospace;
+  
+  /* Design System Colors for Tailwind */
+  --color-base-primary: var(--color-base-primary);
+  --color-base-secondary: var(--color-base-secondary);
+  --color-base-tertiary: var(--color-base-tertiary);
+  --color-base-stroke: var(--color-base-stroke);
+  --color-surface-primary: var(--color-base-surface-primary);
+  --color-surface-secondary: var(--color-base-surface-secondary);
+  
+  /* Semantic */
+  --color-danger: var(--color-danger-100);
+  --color-warning: var(--color-warning-100);
+  --color-success: var(--color-success-100);
+  --color-info: var(--color-info-100);
+  
+  /* Brand */
+  --color-brand-primary: var(--color-brand-primary);
+  --color-brand-secondary: var(--color-brand-secondary);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-roboto), 'Roboto', Arial, Helvetica, sans-serif;
+}
