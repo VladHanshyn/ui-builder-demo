@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import { WizardModal, type WizardIntent, type NavSection } from "@/ui-generator";
 import { getNavigation, saveNavigation, addPageToSection, addNewSection, DEFAULT_SECTIONS } from "@/ui-generator/navigationTree";
 import { titleToFeatureId } from "@/ui-generator/wizardTypes";
@@ -133,7 +134,6 @@ function AppSwitcher() {
   }, []);
 
   const apps = [
-    { id: "ui-builder", name: "UI Builder", icon: <AgentIcon />, active: false, href: "/" },
     { id: "phoenix", name: "Phoenix", icon: <PhoenixIcon />, active: true, href: "/phoenix" },
     { id: "components", name: "Components", icon: <ComponentsIcon />, active: false, href: "/components" },
   ];
@@ -456,9 +456,13 @@ export default function PhoenixPage() {
 
   useEffect(() => {
     setNavState(getNavigation());
+    let loadedRequests: FeatureRequest[] = [];
     try {
       const storedRequests = localStorage.getItem("phoenix-feature-requests");
-      if (storedRequests) setFeatureRequests(JSON.parse(storedRequests));
+      if (storedRequests) {
+        loadedRequests = JSON.parse(storedRequests);
+        setFeatureRequests(loadedRequests);
+      }
       const storedSpecs = localStorage.getItem("phoenix-page-specs");
       if (storedSpecs) setPageSpecs(JSON.parse(storedSpecs));
       const storedCreateSpecs = localStorage.getItem("phoenix-create-page-specs");
@@ -466,7 +470,43 @@ export default function PhoenixPage() {
       const storedRows = localStorage.getItem("phoenix-saved-table-rows");
       if (storedRows) setSavedTableRows(JSON.parse(storedRows));
     } catch {}
+
+    try {
+      const pendingRaw = localStorage.getItem("phoenix-pending-wizard-intent");
+      if (pendingRaw) {
+        localStorage.removeItem("phoenix-pending-wizard-intent");
+        const intent = JSON.parse(pendingRaw) as WizardIntent;
+        const nav = getNavigation();
+        const pageId = titleToFeatureId(intent.title);
+        const spec = buildSpecFromIntent(intent);
+        const createSpec = buildCreatePageSpec(intent);
+        const actionCount = Object.values(intent.rowActions).filter(Boolean).length;
+        const parentLabel = intent.navigation.isNewSection
+          ? intent.navigation.newSectionName
+          : nav.sections.find((s: NavSection) => s.id === intent.navigation.parentSection)?.label || intent.navigation.parentSection || "";
+
+        const request: FeatureRequest = {
+          id: `fr-${Date.now()}`,
+          pageId,
+          title: intent.title,
+          description: intent.description,
+          navigation: intent.navigation,
+          parentSectionLabel: parentLabel,
+          spec,
+          createPageSpec: createSpec!,
+          createdAt: new Date().toISOString(),
+          columnCount: intent.selectedFields.tableColumns.length,
+          actionCount,
+        };
+
+        const updatedRequests = [request, ...loadedRequests];
+        setFeatureRequests(updatedRequests);
+        localStorage.setItem("phoenix-feature-requests", JSON.stringify(updatedRequests));
+      }
+    } catch {}
+
     hydrated.current = true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -773,6 +813,7 @@ export default function PhoenixPage() {
     setFeatureRequests(prev => [request, ...prev]);
   }, [buildSpecFromIntent, buildCreatePageSpec, navState]);
 
+
   const handleApproveRequest = useCallback((request: FeatureRequest) => {
     const nav = request.navigation;
     let updated = navState;
@@ -833,15 +874,15 @@ export default function PhoenixPage() {
               setActivePage(null);
             }}
           />
-          <button
-            onClick={() => setIsWizardOpen(true)}
+          <Link
+            href="/wizard"
             className="flex items-center gap-2 px-3 py-1.5 bg-[var(--color-brand-primary)] text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
             </svg>
             Create with Wizard
-          </button>
+          </Link>
         </div>
       </header>
 
@@ -1068,32 +1109,28 @@ export default function PhoenixPage() {
               <p className="text-sm text-[var(--color-base-tertiary)] mb-4">
                 No table configured yet
               </p>
-              <button
-                onClick={() => setIsWizardOpen(true)}
+              <Link
+                href="/wizard"
                 className="px-4 py-2 bg-[var(--color-brand-primary)] text-white text-sm rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                   <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
                 Create with Wizard
-              </button>
+              </Link>
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center px-4">
-              <img
-                src="/placeholder-no-preview.png"
-                alt="May I click your button?"
-                className="max-w-[320px] w-full rounded-xl object-cover mb-6 shadow-md"
-              />
-              <button
-                onClick={() => setIsWizardOpen(true)}
-                className="mt-2 px-5 py-2.5 bg-[var(--color-brand-primary)] text-white rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
+              <p className="text-sm text-[var(--color-base-tertiary)] mb-4">No preview available. Create a new feature to get started.</p>
+              <Link
+                href="/wizard"
+                className="px-5 py-2.5 bg-[var(--color-brand-primary)] text-white rounded-lg font-medium hover:opacity-90 transition-opacity flex items-center gap-2"
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                   <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
                 </svg>
                 Create with Wizard
-              </button>
+              </Link>
             </div>
           )}
         </main>

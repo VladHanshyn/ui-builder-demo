@@ -607,7 +607,6 @@ export default function Home() {
         <Sidebar defaultActiveItem="components">
           <SidebarGroup>
             <SidebarItem id="agent" icon={<AgentIcon />} label="UI Builder" href="/" />
-            <SidebarItem id="ui-generator" icon={<CodeIcon />} label="UI Generator" href="/ui-generator" />
             <SidebarItem id="components" icon={<ComponentsNavIcon />} label="Components" href="/components" />
           </SidebarGroup>
         </Sidebar>

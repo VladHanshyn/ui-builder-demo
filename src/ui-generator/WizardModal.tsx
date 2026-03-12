@@ -3,11 +3,12 @@
 let _uidSeq = 0;
 function uid(prefix: string) { return `${prefix}-${Date.now()}-${++_uidSeq}`; }
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
-import { Input } from "@/components/ui/Input";
+import { Input, SearchInput } from "@/components/ui/Input";
+import { Chip } from "@/components/ui/Chip";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { ButtonGroup, ButtonGroupItem } from "@/components/ui/ButtonGroup";
 import { Toggle } from "@/components/ui/Toggle";
@@ -24,6 +25,36 @@ import {
   titleToFeatureId,
   type CreatePageConfig,
 } from "./wizardTypes";
+
+function AnimatedStep({ stepKey, children }: { stepKey: number; children: React.ReactNode }) {
+  const [displayKey, setDisplayKey] = useState(stepKey);
+  const [phase, setPhase] = useState<"enter" | "visible">("visible");
+  const prevKey = useRef(stepKey);
+
+  useEffect(() => {
+    if (stepKey !== prevKey.current) {
+      prevKey.current = stepKey;
+      setPhase("enter");
+      setDisplayKey(stepKey);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setPhase("visible"));
+      });
+    }
+  }, [stepKey]);
+
+  return (
+    <div
+      className="h-full w-full transition-all duration-300 ease-out"
+      style={{
+        opacity: phase === "enter" ? 0 : 1,
+        transform: phase === "enter" ? "translateY(12px)" : "translateY(0)",
+      }}
+      key={displayKey}
+    >
+      {children}
+    </div>
+  );
+}
 import { intentToSummary, intentToUiSpecWithValidation } from "./intentToUiSpec";
 import type { AutoFix } from "./intentToUiSpec";
 import { getNavigation as getNavigationState, getSectionsForPicker as getSectionsForPickerFn } from "./navigationTree";
@@ -251,18 +282,24 @@ export function WizardModal({
         <div className="flex-1 flex min-h-0 pl-6 pr-2 pt-2 pb-2 gap-0">
           {/* Preview Area — додатковий відступ знизу 64px */}
           <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep <= 1 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
-            {currentStep === 0 && (
-              <Step0PreviewArea intent={intent} updateIntent={updateIntent} />
-            )}
-            {currentStep === 1 && (
-              <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} />
-            )}
-            {currentStep === 2 && (
-              <Step2PreviewArea intent={intent} />
-            )}
-            {currentStep >= 3 && (
-              <StepGenericPreview step={currentStep} intent={intent} />
-            )}
+              {currentStep === 0 && (
+                <AnimatedStep stepKey={0}>
+                  <Step0PreviewArea intent={intent} updateIntent={updateIntent} />
+                </AnimatedStep>
+              )}
+              {currentStep === 1 && (
+                <AnimatedStep stepKey={1}>
+                  <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} />
+                </AnimatedStep>
+              )}
+              {currentStep >= 2 && currentStep <= 4 && (
+                <SmartTablePreview intent={intent} activeStep={currentStep as 2 | 3 | 4} />
+              )}
+              {currentStep >= 5 && (
+                <AnimatedStep stepKey={currentStep}>
+                  <StepGenericPreview step={currentStep} intent={intent} />
+                </AnimatedStep>
+              )}
           </div>
 
           {/* Right Tool Panel — повна висота, 8px від низу модалки через pb-2 контейнера */}
@@ -363,6 +400,242 @@ export function WizardModal({
       </div>
     </div>,
     document.body
+  );
+}
+
+// ============================================
+// WIZARD PAGE COMPONENT (full-page, no modal)
+// ============================================
+
+interface WizardPageProps {
+  onSubmit?: (intent: WizardIntent) => void;
+  onBack?: () => void;
+  initialIntent?: WizardIntent | null;
+}
+
+export function WizardPage({
+  onSubmit,
+  onBack,
+  initialIntent,
+}: WizardPageProps) {
+  const [mounted, setMounted] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [step1ActiveTab, setStep1ActiveTab] = useState<"sections" | "properties">("sections");
+  const [intent, setIntent] = useState<WizardIntent>(
+    initialIntent || createDefaultWizardIntent()
+  );
+  const contentScrollRef = useRef<HTMLDivElement>(null);
+  const restoreScrollTopRef = useRef(0);
+
+  useEffect(() => { setMounted(true); }, []);
+
+  useEffect(() => {
+    const el = contentScrollRef.current;
+    if (!el) return;
+    const restore = () => {
+      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+      const safe = Math.min(restoreScrollTopRef.current, maxScroll);
+      el.scrollTop = safe;
+    };
+    restore();
+    requestAnimationFrame(restore);
+    setTimeout(restore, 0);
+  }, [intent]);
+
+  const updateIntent = useCallback((updates: Partial<WizardIntent>) => {
+    setIntent((prev) => ({ ...prev, ...updates }));
+  }, []);
+
+  const canGoNext = useCallback(() => {
+    switch (currentStep) {
+      case 0: {
+        const hasTitle = intent.title.trim().length > 0;
+        const hasPlacement = intent.navigation.isNewSection
+          ? intent.navigation.newSectionName.trim().length > 0
+          : intent.navigation.parentSection !== null;
+        const navState = getNavigationState();
+        const allPages = navState.sections.flatMap(s => [
+          s.label.toLowerCase(),
+          ...s.children.map(c => c.label.toLowerCase()),
+        ]);
+        const isDuplicate = allPages.includes(intent.title.trim().toLowerCase());
+        return hasTitle && hasPlacement && !isDuplicate;
+      }
+      case 1:
+        return intent.createPageConfig.sections.length === 1;
+      case 2:
+        return intent.selectedFields.tableColumns.length > 0;
+      default:
+        return true;
+    }
+  }, [currentStep, intent.title, intent.navigation, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
+
+  const handleNext = () => {
+    if (currentStep < WIZARD_STEPS.length - 1 && canGoNext()) {
+      if (currentStep === 0 && !intent.featureId) {
+        updateIntent({ featureId: titleToFeatureId(intent.title) });
+      }
+      setCurrentStep((prev) => prev + 1);
+    }
+  };
+
+  const handleBack = () => {
+    if (currentStep > 0) {
+      setCurrentStep((prev) => prev - 1);
+    }
+  };
+
+  const handleSubmit = () => {
+    onSubmit?.(intent);
+  };
+
+  if (!mounted) return null;
+
+  return (
+    <div className="h-screen w-screen flex flex-col bg-[var(--color-base-stroke)]">
+      <div className="flex-1 flex min-h-0 pl-6 pr-2 pt-2 pb-2 gap-0">
+        {/* Preview Area */}
+        <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep <= 1 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
+            {currentStep === 0 && (
+              <AnimatedStep stepKey={0}>
+                <Step0PreviewArea intent={intent} updateIntent={updateIntent} />
+              </AnimatedStep>
+            )}
+            {currentStep === 1 && (
+              <AnimatedStep stepKey={1}>
+                <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} />
+              </AnimatedStep>
+            )}
+            {currentStep >= 2 && currentStep <= 4 && (
+              <SmartTablePreview intent={intent} activeStep={currentStep as 2 | 3 | 4} />
+            )}
+            {currentStep >= 5 && (
+              <AnimatedStep stepKey={currentStep}>
+                <StepGenericPreview step={currentStep} intent={intent} />
+              </AnimatedStep>
+            )}
+        </div>
+
+        {/* Right Tool Panel */}
+        <div className="relative z-10 w-[465px] min-w-[465px] max-w-[465px] shrink-0 flex flex-col min-h-0 bg-[var(--color-base-surface-primary)] rounded-[24px] overflow-hidden border border-[var(--color-base-stroke)]">
+          <button
+            onClick={() => setShowExitConfirm(true)}
+            className="absolute top-4 right-4 z-10 p-2 rounded-lg text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+            aria-label="Close"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+          {/* Step header */}
+          <div className="shrink-0 px-4 pt-6 pb-4 border-b border-[var(--color-base-stroke)]">
+            <p className="text-paragraph-2 text-[var(--color-base-secondary)]">
+              Step {currentStep + 1} of {WIZARD_STEPS.length}
+            </p>
+            <h3 className="text-xl font-medium text-[var(--color-base-primary)] mt-1">
+              {WIZARD_STEPS[currentStep]?.title}
+            </h3>
+            {(currentStep !== 0 && currentStep !== 1) ? (
+              <p className="text-sm text-[var(--color-base-secondary)] mt-1">
+                {WIZARD_STEPS[currentStep]?.description}
+              </p>
+            ) : (
+              <p className="text-sm text-[var(--color-base-secondary)] mt-1">
+                {currentStep === 0 && "Name your page and choose where it appears in the sidebar."}
+                {currentStep === 1 && "Configure the page users will see when creating or editing an item."}
+              </p>
+            )}
+          </div>
+          {/* Scrollable body */}
+          <div
+            ref={contentScrollRef}
+            className="flex-1 min-h-0 overflow-y-auto pt-4 pb-4"
+            onPointerDownCapture={() => {
+              const el = contentScrollRef.current;
+              if (el) restoreScrollTopRef.current = el.scrollTop;
+            }}
+            onClickCapture={() => {
+              const el = contentScrollRef.current;
+              if (el) restoreScrollTopRef.current = el.scrollTop;
+            }}
+            onFocusCapture={() => {
+              const el = contentScrollRef.current;
+              if (!el) return;
+              const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+              const safe = Math.min(restoreScrollTopRef.current, maxScroll);
+              const restore = () => { el.scrollTop = safe; };
+              restore();
+              requestAnimationFrame(restore);
+              setTimeout(restore, 0);
+            }}
+          >
+            {currentStep === 0 && (
+              <Step0Form intent={intent} updateIntent={updateIntent} />
+            )}
+            {currentStep === 1 && (
+              <StepCreatePage intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} setActiveTab={setStep1ActiveTab} />
+            )}
+            {currentStep === 2 && (
+              <StepTableColumns intent={intent} updateIntent={updateIntent} />
+            )}
+            {currentStep === 3 && (
+              <div className="mt-4 px-4">
+                <StepFilters intent={intent} updateIntent={updateIntent} />
+              </div>
+            )}
+            {currentStep === 4 && (
+              <div className="mt-4 px-4">
+                <StepActions intent={intent} updateIntent={updateIntent} />
+              </div>
+            )}
+            {currentStep === 5 && (
+              <div className="mt-4 px-4">
+                <StepSummary intent={intent} />
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 px-4 py-4 border-t border-[var(--color-base-stroke)] shrink-0">
+            {currentStep > 0 && (
+              <Button variant="secondary" onClick={handleBack} className="flex-1">
+                Back
+              </Button>
+            )}
+            {currentStep < WIZARD_STEPS.length - 1 ? (
+              <Button onClick={handleNext} disabled={!canGoNext()} className="flex-1">
+                Next
+              </Button>
+            ) : (
+              <Button onClick={handleSubmit} className="flex-1">Request Feature</Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Exit confirmation popup */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowExitConfirm(false)} />
+          <div className="relative bg-[var(--color-base-surface-primary)] rounded-2xl shadow-2xl border border-[var(--color-base-stroke)] p-6 w-[400px] max-w-[calc(100vw-2rem)]">
+            <h3 className="text-lg font-medium text-[var(--color-base-primary)]">Leave Wizard?</h3>
+            <p className="text-sm text-[var(--color-base-secondary)] mt-2">
+              All unsaved progress will be lost. Are you sure you want to leave?
+            </p>
+            <div className="flex items-center gap-3 mt-6">
+              <Button variant="secondary" onClick={() => setShowExitConfirm(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button
+                onClick={() => { setShowExitConfirm(false); onBack?.(); }}
+                className="flex-1 !bg-[var(--color-status-error)] !text-white hover:!opacity-90"
+              >
+                Leave
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -783,6 +1056,99 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const dropContainerRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Details panel drag-and-drop
+  const [detailsDropIdx, setDetailsDropIdx] = useState<number | null>(null);
+  const [detailsDraggingIdx, setDetailsDraggingIdx] = useState<number | null>(null);
+  const [detailsMenuId, setDetailsMenuId] = useState<string | null>(null);
+  const [detailsMenuPos, setDetailsMenuPos] = useState({ top: 0, left: 0 });
+  const detailsItems = migrateDetailsItems(config.propertiesPanel);
+
+  const setDetailsItems = useCallback((next: DetailsItem[]) => {
+    updateIntent({
+      createPageConfig: {
+        ...config,
+        propertiesPanel: {
+          ...config.propertiesPanel,
+          sections: detailsItemsToSections(next),
+          detailsItems: next,
+        },
+      },
+    });
+  }, [config, updateIntent]);
+
+  const handleDetailsContainerDragOver = useCallback((e: React.DragEvent) => {
+    const hasPalette = e.dataTransfer.types.includes("details-palette-component");
+    const hasReorder = e.dataTransfer.types.includes("details-reorder");
+    if (!hasPalette && !hasReorder) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = hasPalette ? "copy" : "move";
+
+    const container = e.currentTarget as HTMLElement;
+    const children = Array.from(container.querySelectorAll("[data-details-idx]")) as HTMLElement[];
+    if (children.length === 0) { setDetailsDropIdx(0); return; }
+
+    let insertIdx = children.length;
+    for (let i = 0; i < children.length; i++) {
+      const rect = children[i].getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      if (e.clientY < mid) { insertIdx = i; break; }
+    }
+
+    if (hasReorder && detailsDraggingIdx !== null) {
+      if (insertIdx === detailsDraggingIdx || insertIdx === detailsDraggingIdx + 1) {
+        setDetailsDropIdx(null);
+        return;
+      }
+    }
+
+    setDetailsDropIdx(insertIdx);
+  }, [detailsDraggingIdx]);
+
+  const handleDetailsContainerDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const idx = detailsDropIdx;
+    setDetailsDropIdx(null);
+    setDetailsDraggingIdx(null);
+    if (idx === null) return;
+
+    const paletteData = e.dataTransfer.getData("details-palette-component");
+    if (paletteData) {
+      const { type, label } = JSON.parse(paletteData);
+      let newItem: DetailsItem;
+      if (type === "action") {
+        newItem = { id: uid("action"), kind: "action", label };
+      } else if (type === "section") {
+        newItem = { id: uid("section"), kind: "section", title: label };
+      } else {
+        newItem = { id: uid("field"), kind: "field", label, type };
+      }
+      const next = [...detailsItems];
+      next.splice(idx, 0, newItem);
+      setDetailsItems(next);
+      return;
+    }
+
+    const reorderData = e.dataTransfer.getData("details-reorder");
+    if (reorderData) {
+      const fromIdx = Number(reorderData);
+      if (!isNaN(fromIdx) && fromIdx !== idx) {
+        const next = [...detailsItems];
+        const [removed] = next.splice(fromIdx, 1);
+        const adjustedIdx = idx > fromIdx ? idx - 1 : idx;
+        next.splice(adjustedIdx, 0, removed);
+        setDetailsItems(next);
+      }
+    }
+  }, [detailsDropIdx, detailsItems, setDetailsItems]);
+
+  const removeDetailsItem = useCallback((itemId: string) => {
+    setDetailsItems(detailsItems.filter(i => i.id !== itemId));
+  }, [detailsItems, setDetailsItems]);
+
+  const updateDetailsItem = useCallback((itemId: string, updates: Record<string, unknown>) => {
+    setDetailsItems(detailsItems.map(i => (i.id === itemId ? { ...i, ...updates } : i)));
+  }, [detailsItems, setDetailsItems]);
   const autoScrollRef = React.useRef<number | null>(null);
 
   const autoScrollSpeedRef = React.useRef(0);
@@ -1108,6 +1474,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
             style={{
               width: "calc(100% - 555px)",
               opacity: activeTab === "sections" ? 1 : 0.3,
+              pointerEvents: activeTab === "sections" ? "auto" : "none",
             }}
           >
             <div
@@ -1435,7 +1802,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                                       ) : (
                                         <>
                                           <div className="relative flex items-center mb-1.5">
-                                            <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+                                            <div className="flex items-center min-w-0 overflow-hidden">
                                               <div className="flex items-center shrink min-w-0">
                                                 <input
                                                   type="text"
@@ -1445,9 +1812,9 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                                                   size={Math.max(si.label.length || 1, 1)}
                                                   placeholder="Field name"
                                                 />
-                                                <span className={`text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none ${si.required ? "visible" : "invisible"}`}>*</span>
+                                                {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
                                               </div>
-                                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <path d="M8.5 1.5L10.5 3.5M1 11L1.5 8.5L9.5 0.5L11.5 2.5L3.5 10.5L1 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
                                               </svg>
                                             </div>
@@ -1621,6 +1988,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
             className="w-[330px] min-w-[330px] shrink-0 rounded-2xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] flex flex-col transition-opacity duration-300 ease-in-out overflow-hidden"
             style={{
               opacity: activeTab === "properties" ? 1 : 0.4,
+              pointerEvents: activeTab === "properties" ? "auto" : "none",
             }}
           >
             {/* Status header — 48px */}
@@ -1636,57 +2004,225 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
               </div>
             )}
 
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
-              {migrateDetailsItems(config.propertiesPanel).map((si) => {
-                if (si.kind === "section") {
-                  return <p key={si.id} className="text-sm font-medium text-[var(--color-base-primary)] pt-2">{si.title}</p>;
-                }
-                if (si.kind === "action") {
-                  return (
-                    <div key={si.id}>
-                      <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+            {/* Scrollable content with drag-and-drop */}
+            <div
+              className="flex-1 overflow-y-auto p-2 space-y-0 hide-scrollbar"
+              onDragOver={handleDetailsContainerDragOver}
+              onDragLeave={() => setDetailsDropIdx(null)}
+              onDrop={handleDetailsContainerDrop}
+            >
+              {detailsItems.length === 0 && detailsDropIdx === null && (
+                <div className="flex items-center justify-center py-10 text-sm text-[var(--color-base-tertiary)]">
+                  Drag components here
+                </div>
+              )}
+              {detailsItems.map((si, idx) => (
+                <React.Fragment key={si.id}>
+                  {/* Drop indicator */}
+                  <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
+                    detailsDropIdx === idx
+                      ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
+                      : "h-0 border-0 opacity-0"
+                  }`} />
+
+                  <div
+                    data-details-idx={idx}
+                    className={`group relative flex items-start gap-1.5 rounded-lg px-2 py-2 transition-all duration-200 ${
+                      detailsDraggingIdx === idx
+                        ? "opacity-30 scale-[0.97]"
+                        : "hover:bg-[var(--color-base-surface-secondary)]"
+                    }`}
+                  >
+                    {/* Drag handle */}
+                    <div
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("details-reorder", String(idx));
+                        e.dataTransfer.effectAllowed = "move";
+                        setDetailsDraggingIdx(idx);
+                        const fieldEl = e.currentTarget.parentElement as HTMLElement;
+                        const handleRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        const fieldRect = fieldEl.getBoundingClientRect();
+                        const offsetX = (handleRect.left + handleRect.width / 2) - fieldRect.left;
+                        const offsetY = (handleRect.top + handleRect.height / 2) - fieldRect.top;
+                        const clone = fieldEl.cloneNode(true) as HTMLElement;
+                        clone.style.width = `${fieldEl.offsetWidth}px`;
+                        clone.style.position = "absolute";
+                        clone.style.top = "-9999px";
+                        clone.style.left = "-9999px";
+                        clone.style.opacity = "0.85";
+                        clone.style.borderRadius = "8px";
+                        clone.style.background = "var(--color-base-surface-primary)";
+                        clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+                        document.body.appendChild(clone);
+                        e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                        requestAnimationFrame(() => clone.remove());
+                      }}
+                      onDragEnd={() => { setDetailsDraggingIdx(null); setDetailsDropIdx(null); }}
+                      className="shrink-0 mt-2.5 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <PreviewDragHandleIcon />
                     </div>
-                  );
-                }
-                const field = si;
-                return (
-                  <div key={field.id}>
-                    <label className="block text-label-normal text-[var(--color-base-primary)] mb-1.5">
-                      {field.label}
-                      {field.required && <span className="text-[var(--color-status-error)]"> *</span>}
-                    </label>
-                    {field.type === "textarea" ? (
-                      <textarea
-                        disabled={field.readOnly}
-                        placeholder={field.placeholder || `Enter ${field.label}...`}
-                        rows={2}
-                        className="w-full px-3 py-2 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] disabled:opacity-50 resize-none"
-                      />
-                    ) : field.type === "select" ? (
-                      <Select
-                        disabled={field.readOnly}
-                        placeholder={`Select ${field.label}...`}
-                        options={[{ label: "Option 1", value: "1" }, { label: "Option 2", value: "2" }]}
-                      />
-                    ) : field.type === "date-time" ? (
-                      <Input disabled={field.readOnly} placeholder="Select Date and Time" rightIcon={
-                        field.copyable ? <PreviewCopyIcon /> :
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
-                          <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                          <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                        </svg>
-                      } />
-                    ) : (
-                      <Input
-                        disabled={field.readOnly}
-                        placeholder={field.placeholder || (field.autoGenerated ? "Auto-generated" : `Enter ${field.label}...`)}
-                        rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined}
-                      />
+
+                    {/* Field content */}
+                    <div className="flex-1 min-w-0">
+                      {si.kind === "section" ? (
+                        <div className="relative flex items-center mb-1 pt-1">
+                          <input
+                            type="text"
+                            value={si.title}
+                            onChange={(e) => updateDetailsItem(si.id, { title: e.target.value })}
+                            className="text-sm font-medium text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-[3ch]"
+                            size={Math.max((si.title || "").length || 1, 1)}
+                            placeholder="Section title"
+                          />
+                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                            <path d="M8.5 1.5L10.5 3.5M1 11L1.5 8.5L9.5 0.5L11.5 2.5L3.5 10.5L1 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
+                            <button
+                              type="button"
+                              onClick={() => { removeDetailsItem(si.id); }}
+                              className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+                            >
+                              <PreviewDeleteIcon />
+                            </button>
+                          </div>
+                        </div>
+                      ) : si.kind === "action" ? (
+                        <div className="pt-1 flex items-center gap-2">
+                          <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+                          <button
+                            type="button"
+                            onClick={() => removeDetailsItem(si.id)}
+                            className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+                          >
+                            <PreviewDeleteIcon />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="relative flex items-center mb-1.5">
+                            <div className="flex items-center min-w-0 overflow-hidden">
+                              <div className="flex items-center shrink min-w-0">
+                                <input
+                                  type="text"
+                                  value={si.label}
+                                  onChange={(e) => updateDetailsItem(si.id, { label: e.target.value })}
+                                  className="text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-[3ch]"
+                                  size={Math.max(si.label.length || 1, 1)}
+                                  placeholder="Field name"
+                                />
+                                {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
+                              </div>
+                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                                <path d="M8.5 1.5L10.5 3.5M1 11L1.5 8.5L9.5 0.5L11.5 2.5L3.5 10.5L1 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            </div>
+                            <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  if (detailsMenuId === si.id) { setDetailsMenuId(null); return; }
+                                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                  setDetailsMenuPos({ top: rect.bottom + 4, left: rect.right - 224 });
+                                  setDetailsMenuId(si.id);
+                                }}
+                                className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-all"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="rotate-90">
+                                  <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
+                                  <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+                                  <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          {si.type === "textarea" ? (
+                            <textarea
+                              disabled={si.readOnly}
+                              placeholder={`Enter ${si.label}...`}
+                              rows={3}
+                              className="w-full px-3 py-2 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] disabled:opacity-50 resize-none"
+                            />
+                          ) : si.type === "select" ? (
+                            <Select
+                              readOnly={!si.readOnly}
+                              disabled={si.readOnly}
+                              placeholder={`Select ${si.label}...`}
+                              options={[{ label: "Option 1", value: "1" }, { label: "Option 2", value: "2" }, { label: "Option 3", value: "3" }]}
+                            />
+                          ) : si.type === "date-time" ? (
+                            <Input disabled={si.readOnly} placeholder="Select Date and Time" rightIcon={
+                              si.copyable ? <PreviewCopyIcon /> :
+                              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
+                                <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+                                <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                              </svg>
+                            } />
+                          ) : si.type === "number" ? (
+                            <Input disabled={si.readOnly} type="number" placeholder="0" rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : (
+                            <Input disabled={si.readOnly} placeholder={`Enter ${si.label}...`} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* More menu dropdown (portal) */}
+                    {si.kind === "field" && detailsMenuId === si.id && createPortal(
+                      <>
+                        <div className="fixed inset-0 z-[10000]" onMouseDown={() => setDetailsMenuId(null)} />
+                        <div
+                          className="fixed z-[10001] w-56 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1"
+                          style={{ top: detailsMenuPos.top, left: detailsMenuPos.left }}
+                        >
+                          <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                            <Checkbox
+                              checked={si.required || false}
+                              onCheckedChange={() => { updateDetailsItem(si.id, { required: !si.required }); }}
+                            />
+                            <span className="text-sm text-[var(--color-base-primary)]">Required</span>
+                          </label>
+                          <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                            <Checkbox
+                              checked={si.readOnly === true}
+                              onCheckedChange={() => { updateDetailsItem(si.id, { readOnly: !si.readOnly }); }}
+                            />
+                            <span className="text-sm text-[var(--color-base-primary)]">Read-only</span>
+                          </label>
+                          <label className={`flex items-center gap-2.5 px-3 py-2 transition-colors ${si.type === "input" ? "hover:bg-[var(--color-base-surface-secondary)] cursor-pointer" : "opacity-40 cursor-not-allowed"}`}>
+                            <Checkbox
+                              checked={si.copyable || false}
+                              disabled={si.type !== "input"}
+                              onCheckedChange={() => { if (si.type === "input") updateDetailsItem(si.id, { copyable: !si.copyable }); }}
+                            />
+                            <span className="text-sm text-[var(--color-base-primary)]">Copy to clipboard</span>
+                          </label>
+                          <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                          <button
+                            type="button"
+                            onClick={() => { removeDetailsItem(si.id); setDetailsMenuId(null); }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-status-error)]/10 transition-colors text-left"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                              <path d="M2.667 4.667H13.333M6.667 7.333V11.333M9.333 7.333V11.333M3.333 4.667L4 12.667C4 13.403 4.597 14 5.333 14H10.667C11.403 14 12 13.403 12 12.667L12.667 4.667M6 4.667V2.667C6 2.299 6.299 2 6.667 2H9.333C9.701 2 10 2.299 10 2.667V4.667" stroke="var(--color-status-error)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                            <span className="text-sm text-[var(--color-status-error)]">Delete</span>
+                          </button>
+                        </div>
+                      </>,
+                      document.body
                     )}
                   </div>
-                );
-              })}
+                </React.Fragment>
+              ))}
+              {/* Drop indicator at end */}
+              <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
+                detailsDropIdx === detailsItems.length
+                  ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
+                  : "h-0 border-0 opacity-0"
+              }`} />
             </div>
 
             {/* Delete footer — прибитий до низу */}
@@ -1711,13 +2247,125 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
 
 // Placeholder для Preview Area на кроках 2–5: підсвічує зону роботи
 // Step 2 Preview: Table with skeleton rows
-function Step2PreviewArea({ intent }: { intent: WizardIntent }) {
+const FilterIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <path d="M1.5 3h13M4 8h8M6 13h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+function FilterChip({ label }: { label: string }) {
+  return (
+    <div className="shrink-0">
+      <Select
+        value=""
+        onChange={() => {}}
+        placeholder={label}
+        options={[{ value: "all", label: "All" }]}
+        readOnly
+      />
+    </div>
+  );
+}
+
+const TRANSITION = "transition-all duration-500 ease-in-out";
+
+function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activeStep: 2 | 3 | 4 }) {
   const selectedColumns = (intent.selectedFields?.tableColumns || []).filter(
     (f): f is FieldRef => f != null && typeof f.id === "string"
   );
-
   const skeletonRows = 6;
   const colWidth = 192;
+
+  const hasSearch = intent.filters?.freeTextSearch ?? false;
+  const enabledFilters = selectedColumns.filter(
+    (col) => intent.filters?.fieldFilters?.[col.id]
+  );
+
+  const showFilters = activeStep >= 3;
+  const filtersOpacity = activeStep === 3 ? 1 : activeStep === 4 ? 0.4 : 0;
+  const titleOpacity = activeStep <= 3 ? 1 : 0.4;
+  const tableOpacity = activeStep === 2 ? 1 : 0.4;
+
+  const rowActions = intent.rowActions;
+  const activeActions: { icon: React.ReactNode; label: string }[] = [];
+  if (rowActions.viewDetails) activeActions.push({
+    label: "View details",
+    icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3C4.5 3 1.5 6 1.5 8C1.5 10 4.5 13 8 13C11.5 13 14.5 10 14.5 8C14.5 6 11.5 3 8 3Z" stroke="currentColor" strokeWidth="1.5"/><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.5"/></svg>,
+  });
+  if (rowActions.edit) activeActions.push({
+    label: "Edit",
+    icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5L13.5 4.5L5 13H3V11L11.5 2.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/></svg>,
+  });
+  if (rowActions.duplicate) activeActions.push({
+    label: "Duplicate",
+    icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/><path d="M11 5V3.5C11 2.67 10.33 2 9.5 2H3.5C2.67 2 2 2.67 2 3.5V9.5C2 10.33 2.67 11 3.5 11H5" stroke="currentColor" strokeWidth="1.5"/></svg>,
+  });
+  if (rowActions.delete) activeActions.push({
+    label: "Delete",
+    icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-status-error)]"><path d="M3 4H13M6 4V3C6 2.45 6.45 2 7 2H9C9.55 2 10 2.45 10 3V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+  });
+  const showActions = activeStep === 4 && activeActions.length > 0;
+
+  const measureRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [maxVisible, setMaxVisible] = useState<number | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!showFilters) return;
+    const measureEl = measureRef.current;
+    const containerEl = containerRef.current;
+    if (!measureEl || !containerEl) return;
+
+    const measure = () => {
+      const searchWidth = hasSearch ? 220 + 8 : 0;
+      const availableWidth = containerEl.getBoundingClientRect().width - searchWidth;
+      const moreWidth = 80;
+      const gap = 8;
+      const children = Array.from(measureEl.children) as HTMLElement[];
+      let usedWidth = 0;
+      let allFit = true;
+
+      for (let i = 0; i < children.length; i++) {
+        const childWidth = children[i].getBoundingClientRect().width;
+        const nextWidth = usedWidth + childWidth + (i > 0 ? gap : 0);
+        if (nextWidth > availableWidth) { allFit = false; break; }
+        usedWidth = nextWidth;
+      }
+
+      if (allFit) { setMaxVisible(children.length); return; }
+
+      usedWidth = 0;
+      let visible = 0;
+      for (let i = 0; i < children.length; i++) {
+        const childWidth = children[i].getBoundingClientRect().width;
+        const nextWidth = usedWidth + childWidth + (i > 0 ? gap : 0);
+        if (nextWidth > availableWidth - moreWidth - gap) break;
+        usedWidth = nextWidth;
+        visible++;
+      }
+      setMaxVisible(Math.max(visible, 0));
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(containerEl);
+    return () => observer.disconnect();
+  }, [enabledFilters.length, hasSearch, showFilters]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [moreOpen]);
+
+  const effectiveMax = maxVisible ?? enabledFilters.length;
+  const visibleFilters = maxVisible === null ? [] : enabledFilters.slice(0, effectiveMax);
+  const overflowFilters = maxVisible === null ? [] : enabledFilters.slice(effectiveMax);
 
   return (
     <div className="h-full flex flex-col overflow-visible">
@@ -1726,35 +2374,118 @@ function Step2PreviewArea({ intent }: { intent: WizardIntent }) {
       </p>
 
       <div className="flex-1 min-h-0 pr-6 space-y-4">
-        <h2 className="text-headline-1 font-semibold text-[var(--color-base-primary)]">
+        {/* Title */}
+        <h2
+          className={`text-headline-1 font-semibold text-[var(--color-base-primary)] ${TRANSITION}`}
+          style={{ opacity: titleOpacity }}
+        >
           {intent.title || "Feature Name"}
         </h2>
 
+        {/* Hidden measurement row (always present for filters) */}
+        <div
+          ref={measureRef}
+          aria-hidden
+          className="flex gap-2 items-center pointer-events-none opacity-0 h-0 overflow-hidden whitespace-nowrap absolute left-0"
+        >
+          {enabledFilters.map((col) => (
+            <FilterChip key={col.id} label={col.label} />
+          ))}
+        </div>
+
+        {/* Filters toolbar — slides in/out and fades */}
+        <div
+          ref={containerRef}
+          className={`flex items-center gap-2 ${TRANSITION} overflow-hidden`}
+          style={{
+            opacity: filtersOpacity,
+            maxHeight: showFilters ? 48 : 0,
+            marginTop: showFilters ? undefined : 0,
+            marginBottom: showFilters ? undefined : 0,
+          }}
+        >
+          {visibleFilters.map((col) => (
+            <FilterChip key={col.id} label={col.label} />
+          ))}
+
+          {overflowFilters.length > 0 && (
+            <div ref={moreRef} className="relative shrink-0">
+              <button
+                onClick={() => setMoreOpen(!moreOpen)}
+                className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-sm text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors outline-none"
+              >
+                More
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className={`transition-transform ${moreOpen ? "rotate-180" : ""}`}>
+                  <path d="M3.5 5.5L7 9L10.5 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              {moreOpen && (
+                <div className="absolute top-full mt-1 left-0 bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)] rounded-xl shadow-lg z-50 p-2 flex gap-2 whitespace-nowrap">
+                  {overflowFilters.map((col) => (
+                    <FilterChip key={col.id} label={col.label} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {showFilters && !hasSearch && enabledFilters.length === 0 && (
+            <div className="flex items-center h-9 px-3 text-sm text-[var(--color-base-tertiary)]">
+              Enable search or filters in the right panel
+            </div>
+          )}
+
+          {hasSearch && (
+            <div className="ml-auto shrink-0 w-[220px]">
+              <SearchInput placeholder="Search..." readOnly />
+            </div>
+          )}
+        </div>
+
+        {/* Table */}
         {selectedColumns.length === 0 ? (
           <div className="flex items-center justify-center py-16">
             <p className="text-sm text-[var(--color-base-tertiary)]">Select columns in the right panel to see the table preview</p>
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)]">
-            <table style={{ minWidth: selectedColumns.length * colWidth }}>
+            <table className="w-full">
               <thead>
                 <tr className="border-b border-[var(--color-base-stroke)]">
                   {selectedColumns.map((col) => (
                     <th
                       key={col.id}
-                      style={{ width: colWidth, minWidth: colWidth }}
-                      className="h-8 px-3 text-left text-xs font-medium text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)]"
+                      className={`h-8 px-3 text-left text-xs font-medium text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] ${TRANSITION}`}
+                      style={{ width: colWidth, minWidth: colWidth, opacity: tableOpacity }}
                     >
                       {col.label}
                     </th>
                   ))}
+                  {/* Actions header — slides in */}
+                  <th
+                    className={`sticky right-0 z-10 h-8 px-3 text-left text-xs font-medium text-[var(--color-base-primary)] bg-[var(--color-base-surface-secondary)] border-l-2 border-[var(--color-base-stroke)] whitespace-nowrap ${TRANSITION}`}
+                    style={{
+                      maxWidth: showActions ? 200 : 0,
+                      width: showActions ? "auto" : 0,
+                      opacity: showActions ? 1 : 0,
+                      padding: showActions ? undefined : 0,
+                      borderLeftWidth: showActions ? 2 : 0,
+                      overflow: "hidden",
+                    }}
+                  >
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {Array.from({ length: skeletonRows }).map((_, rowIdx) => (
                   <tr key={rowIdx} className="border-b border-[var(--color-base-stroke)] last:border-b-0">
                     {selectedColumns.map((col) => (
-                      <td key={col.id} style={{ width: colWidth, minWidth: colWidth, height: 48 }} className="px-3">
+                      <td
+                        key={col.id}
+                        className={`px-3 ${TRANSITION}`}
+                        style={{ width: colWidth, minWidth: colWidth, height: 48, opacity: tableOpacity }}
+                      >
                         <div className="flex items-center gap-2">
                           <div
                             className="h-2.5 rounded bg-[var(--color-base-stroke)] flex-1"
@@ -1769,6 +2500,29 @@ function Step2PreviewArea({ intent }: { intent: WizardIntent }) {
                         </div>
                       </td>
                     ))}
+                    {/* Actions cells */}
+                    <td
+                      className={`sticky right-0 z-10 bg-[var(--color-base-surface-primary)] border-l-2 border-[var(--color-base-stroke)] ${TRANSITION}`}
+                      style={{
+                        height: 48,
+                        maxWidth: showActions ? 200 : 0,
+                        width: showActions ? "auto" : 0,
+                        opacity: showActions ? 1 : 0,
+                        padding: showActions ? "0 12px" : 0,
+                        borderLeftWidth: showActions ? 2 : 0,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <ButtonGroup>
+                        {activeActions.map((action, i) => (
+                          <ButtonGroupItem
+                            key={i}
+                            icon={action.icon}
+                            aria-label={action.label}
+                          />
+                        ))}
+                      </ButtonGroup>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -2081,8 +2835,10 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
               </label>
             </div>
 
-            <p className="text-sm font-medium text-[var(--color-base-primary)]">Components</p>
-            <p className="text-xs text-[var(--color-base-tertiary)]">Drag components to the Preview area</p>
+            <div className="mt-4 space-y-1">
+              <p className="text-base font-medium text-[var(--color-base-primary)]">Components</p>
+              <p className="text-xs text-[var(--color-base-secondary)]">Drag components to the Preview area</p>
+            </div>
 
             {/* Component palette */}
             <div className="grid grid-cols-2 gap-2">
@@ -2489,69 +3245,20 @@ function detailsItemsToSections(items: DetailsItem[]): CreatePageConfig["propert
   return sections;
 }
 
+const DETAILS_PALETTE_ITEMS = [
+  { type: "input", label: "Text Field", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "select", label: "Select", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M11 7.5L13 9.5L11 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+  { type: "date-time", label: "Date Picker", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2 7.5H16M5.5 1V4M12.5 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "number", label: "Number", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 7.5H11M11 7.5V11.5M11 7.5L7 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+  { type: "textarea", label: "Textarea", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="2" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 6H13M5 9H13M5 12H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "action", label: "Button", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="5" width="14" height="8" rx="4" stroke="currentColor" strokeWidth="1.5"/><path d="M7 9H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "section", label: "Section Title", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 5H15M3 9H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+];
+
 function PropertiesEditor({ config, updateIntent, intent, hoveredFieldId, onHoverField }: { config: CreatePageConfig; updateIntent: StepProps["updateIntent"]; intent: WizardIntent; hoveredFieldId?: string | null; onHoverField?: (id: string | null) => void }) {
-  const items = migrateDetailsItems(config.propertiesPanel);
-
-  const setItems = (next: DetailsItem[]) => {
-    updateIntent({
-      createPageConfig: {
-        ...config,
-        propertiesPanel: {
-          ...config.propertiesPanel,
-          sections: detailsItemsToSections(next),
-          detailsItems: next,
-        },
-      },
-    });
-  };
-
-  const addField = () => {
-    setItems([...items, { id: uid("field"), kind: "field", label: "New Field", type: "input" }]);
-  };
-
-  const addAction = () => {
-    setItems([...items, { id: uid("action"), kind: "action", label: "New Action" }]);
-  };
-
-  const addSection = () => {
-    setItems([...items, { id: uid("section"), kind: "section", title: "New Section" }]);
-  };
-
-  const removeItem = (itemId: string) => {
-    setItems(items.filter(i => i.id !== itemId));
-  };
-
-  const updateItem = (itemId: string, updates: Record<string, unknown>) => {
-    setItems(items.map(i => (i.id === itemId ? { ...i, ...updates } : i)));
-  };
-
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.setData("text/plain", String(index));
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverIndex(index);
-  };
-
-  const handleDrop = (e: React.DragEvent, toIndex: number) => {
-    e.preventDefault();
-    setDragOverIndex(null);
-    const fromIndex = Number(e.dataTransfer.getData("text/plain"));
-    if (!isNaN(fromIndex) && fromIndex !== toIndex) {
-      const next = [...items];
-      const [removed] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, removed);
-      setItems(next);
-    }
-  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4">
       {/* Toggles */}
       <div className="flex items-center gap-6">
         <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)] opacity-50 pointer-events-none">
@@ -2560,110 +3267,42 @@ function PropertiesEditor({ config, updateIntent, intent, hoveredFieldId, onHove
         </label>
       </div>
 
-      <p className="text-sm font-medium text-[var(--color-base-primary)]">Fields &amp; Actions</p>
-
-      {/* Flat items list */}
-      <div className="space-y-2">
-        {items.map((item, index) => (
-          <div
-            key={item.id}
-            className={`flex items-center gap-1 transition-colors ${dragOverIndex === index ? "bg-[var(--color-brand-primary)]/10 rounded-2xl" : ""}`}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDragLeave={() => setDragOverIndex(null)}
-            onDrop={(e) => handleDrop(e, index)}
-          >
-            {/* Drag handle */}
-            <div
-              draggable
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragEnd={() => setDragOverIndex(null)}
-              className="shrink-0 text-[var(--color-base-tertiary)] cursor-grab active:cursor-grabbing touch-none"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M5 3H7V5H5V3ZM9 3H11V5H9V3ZM5 7H7V9H5V7ZM9 7H11V9H9V7ZM5 11H7V13H5V11ZM9 11H11V13H9V11Z" fill="currentColor"/>
-              </svg>
-            </div>
-
-            {item.kind === "field" ? (
-              <div className="flex-1 min-w-0 border border-[var(--color-base-stroke)] rounded-2xl p-4 space-y-2">
-                <div className="flex gap-2">
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <p className="text-sm font-medium text-[var(--color-base-primary)]">Input Name</p>
-                    <Input
-                      value={item.label}
-                      onChange={(e) => updateItem(item.id, { label: e.target.value })}
-                      placeholder="Title"
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <p className="text-sm font-medium text-[var(--color-base-primary)]">Type</p>
-                    <select
-                      value={item.type === "readonly" ? "input" : item.type}
-                      onChange={(e) => updateItem(item.id, { type: e.target.value })}
-                      className="w-full px-2 py-1.5 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)]"
-                    >
-                      <option value="input">Input</option>
-                      <option value="textarea">Textarea</option>
-                      <option value="select">Select</option>
-                      <option value="date-time">Date &amp; Time</option>
-                      <option value="number">Number</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-4">
-                  <WizardCheckbox label="Req." checked={item.required || false} onCheckedChange={() => updateItem(item.id, { required: !item.required })} />
-                  <WizardCheckbox label="Read-only" checked={item.readOnly === true || item.type === "readonly"} onCheckedChange={() => updateItem(item.id, { readOnly: !(item.readOnly === true || item.type === "readonly") })} />
-                  <WizardCheckbox label="Enable Copy to Clipboard" checked={item.copyable || false} onCheckedChange={() => updateItem(item.id, { copyable: !item.copyable })} />
-                </div>
-              </div>
-            ) : item.kind === "action" ? (
-              <div className="flex-1 min-w-0 rounded-2xl p-4 space-y-1 bg-[var(--color-brand-primary)]/5">
-                <p className="text-sm font-medium text-[var(--color-brand-primary)]">Action Button</p>
-                <Input
-                  value={item.label}
-                  onChange={(e) => updateItem(item.id, { label: e.target.value })}
-                  placeholder="Action name"
-                />
-              </div>
-            ) : (
-              <div className="flex-1 min-w-0 rounded-2xl p-4 space-y-1 bg-[var(--color-base-surface-secondary)]">
-                <p className="text-sm font-medium text-[var(--color-base-secondary)]">Section</p>
-                <Input
-                  value={item.title}
-                  onChange={(e) => updateItem(item.id, { title: e.target.value })}
-                  placeholder="Section title"
-                />
-              </div>
-            )}
-
-            {/* Delete button */}
-            <button
-              type="button"
-              onClick={() => removeItem(item.id)}
-              className="shrink-0 size-8 flex items-center justify-center rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] transition-colors"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-              </svg>
-            </button>
-          </div>
-        ))}
+      <div className="space-y-1">
+        <p className="text-base font-medium text-[var(--color-base-primary)]">Components</p>
+        <p className="text-xs text-[var(--color-base-secondary)]">Drag components to the Details panel</p>
       </div>
 
-      {/* Add buttons */}
-      <div className="space-y-2 pl-6">
-        <button type="button" onClick={addField} className="w-full flex items-center justify-center gap-1 py-1 px-4 rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-sm font-medium text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 4V16M4 10H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          Add Field
-        </button>
-        <button type="button" onClick={addSection} className="w-full flex items-center justify-center gap-1 py-1 px-4 rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-sm font-medium text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 4V16M4 10H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          Add Section
-        </button>
-        <button type="button" onClick={addAction} className="w-full flex items-center justify-center gap-1 py-1 px-4 rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-sm font-medium text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 4V16M4 10H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-          Add Action
-        </button>
+      {/* Component palette */}
+      <div className="grid grid-cols-2 gap-2">
+        {DETAILS_PALETTE_ITEMS.map((pi) => (
+          <div
+            key={pi.type}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData("details-palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+              e.dataTransfer.effectAllowed = "copy";
+              const el = e.currentTarget as HTMLElement;
+              const elRect = el.getBoundingClientRect();
+              const cursorX = e.clientX - elRect.left;
+              const cursorY = e.clientY - elRect.top;
+              const clone = el.cloneNode(true) as HTMLElement;
+              clone.style.width = `${el.offsetWidth}px`;
+              clone.style.position = "absolute";
+              clone.style.top = "-9999px";
+              clone.style.left = "-9999px";
+              clone.style.opacity = "0.9";
+              document.body.appendChild(clone);
+              e.dataTransfer.setDragImage(clone, cursorX, cursorY);
+              requestAnimationFrame(() => clone.remove());
+            }}
+            className="flex items-center gap-2.5 px-3 py-3 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] cursor-grab active:cursor-grabbing hover:border-[var(--color-base-tertiary)] hover:shadow-sm transition-all select-none"
+          >
+            <span className="shrink-0 size-8 flex items-center justify-center rounded-lg bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)]">
+              {pi.icon}
+            </span>
+            <span className="text-sm font-medium text-[var(--color-base-primary)]">{pi.label}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -3057,76 +3696,17 @@ function StepActions({ intent, updateIntent }: StepProps) {
           </label>
 
           <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-base-stroke)] cursor-pointer hover:bg-[var(--color-base-surface-secondary)]">
-            <WizardCheckbox checked={intent.rowActions.approve} onChange={() => toggleRowAction("approve")} />
-            <div className="flex items-center gap-2">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-status-success)]">
-                <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-              <span className="text-[var(--color-base-primary)]">Approve</span>
-            </div>
-          </label>
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-base-stroke)] cursor-pointer hover:bg-[var(--color-base-surface-secondary)]">
-              <WizardCheckbox checked={intent.rowActions.reject} onChange={() => toggleRowAction("reject")} />
-              <div className="flex items-center gap-2">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-status-warning)]">
-                  <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-                <span className="text-[var(--color-base-primary)]">Reject</span>
-              </div>
-            </label>
-            {intent.rowActions.reject && (
-              <label className="flex items-center gap-3 ml-8 p-2 rounded-lg cursor-pointer">
-                <WizardCheckbox
-                  checked={intent.rowActions.rejectRequiresReason}
-                  onChange={() => toggleRowAction("rejectRequiresReason")}
-                />
-                <span className="text-sm text-[var(--color-base-secondary)]">Requires reason</span>
-              </label>
-            )}
-          </div>
-
-          <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-status-error)]/30 cursor-pointer hover:bg-[var(--color-status-error)]/5">
             <WizardCheckbox checked={intent.rowActions.delete} onChange={() => toggleRowAction("delete")} />
             <div className="flex items-center gap-2">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-status-error)]">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
                 <path d="M3 4H13M6 4V3C6 2.45 6.45 2 7 2H9C9.55 2 10 2.45 10 3V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
-              <span className="text-[var(--color-status-error)]">Delete (always requires confirmation)</span>
+              <span className="text-[var(--color-base-primary)]">Delete</span>
             </div>
           </label>
         </div>
       </div>
 
-      {/* Bulk Actions */}
-      <div>
-        <h4 className="text-sm font-medium text-[var(--color-base-primary)] mb-3">
-          Bulk Actions
-        </h4>
-        <div className="space-y-2">
-          <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-base-stroke)] cursor-pointer hover:bg-[var(--color-base-surface-secondary)]">
-            <WizardCheckbox checked={intent.bulkActions.approveSelected} onChange={() => toggleBulkAction("approveSelected")} />
-            <span className="text-[var(--color-base-primary)]">Approve selected</span>
-          </label>
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-base-stroke)] cursor-pointer hover:bg-[var(--color-base-surface-secondary)]">
-              <WizardCheckbox checked={intent.bulkActions.rejectSelected} onChange={() => toggleBulkAction("rejectSelected")} />
-              <span className="text-[var(--color-base-primary)]">Reject selected</span>
-            </label>
-            {intent.bulkActions.rejectSelected && (
-              <label className="flex items-center gap-3 ml-8 p-2 rounded-lg cursor-pointer">
-                <WizardCheckbox
-                  checked={intent.bulkActions.rejectRequiresReason}
-                  onChange={() => toggleBulkAction("rejectRequiresReason")}
-                />
-                <span className="text-sm text-[var(--color-base-secondary)]">Requires reason</span>
-              </label>
-            )}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

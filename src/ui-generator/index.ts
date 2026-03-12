@@ -16,7 +16,7 @@ export {
   downloadYaml,
 } from './storage';
 export { UISpecRenderer } from './renderer';
-export { WizardModal } from './WizardModal';
+export { WizardModal, WizardPage } from './WizardModal';
 export { intentToUiSpec, intentToUiSpecWithValidation, intentToYaml, intentToSummary } from './intentToUiSpec';
 export type { IntentToSpecResult, AutoFix } from './intentToUiSpec';
 export type {

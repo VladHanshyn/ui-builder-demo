@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { ResultTabsContent } from "./components/ResultTabs";
 import { agentApi } from "./agentApi";
@@ -45,14 +46,6 @@ const ComponentsIcon = () => (
     <rect x="11" y="2" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
     <rect x="2" y="11" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
     <rect x="11" y="11" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-  </svg>
-);
-
-const CodeIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M6 6L2 10L6 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M14 6L18 10L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M12 4L8 16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
   </svg>
 );
 
@@ -564,12 +557,12 @@ export function AgentPage() {
 
         {/* Right: Actions & Theme Toggle */}
         <div className="flex items-center gap-3">
-          {currentSpec && (
-            <Button onClick={() => setIsWizardOpen(true)}>
+          <Link href="/wizard">
+            <Button>
               <WizardIcon />
-              New via Wizard
+              Create with Wizard
             </Button>
-          )}
+          </Link>
           <button
             onClick={toggleTheme}
             className="p-2 rounded-lg text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
@@ -587,7 +580,6 @@ export function AgentPage() {
           {/* Navigation */}
           <nav className="p-2 border-b border-[var(--color-base-stroke)]">
             <NavItem icon={<AgentIcon />} label="UI Builder" href="/" active />
-            <NavItem icon={<CodeIcon />} label="UI Generator" href="/ui-generator" />
             <NavItem icon={<ComponentsIcon />} label="Components" href="/components" />
           </nav>
 
