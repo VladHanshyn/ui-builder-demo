@@ -1780,7 +1780,9 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                                         }
                                       }}
                                       onDragEnd={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); setDraggingFieldId(null); }}
-                                      className="shrink-0 mt-2.5 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                                      className={`shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity ${
+                                        si.kind === "field" ? "mt-7" : "mt-2.5"
+                                      }`}
                                     >
                                       <PreviewDragHandleIcon />
                                     </div>
@@ -2059,7 +2061,9 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                         requestAnimationFrame(() => clone.remove());
                       }}
                       onDragEnd={() => { setDetailsDraggingIdx(null); setDetailsDropIdx(null); }}
-                      className="shrink-0 mt-2.5 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                      className={`shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity ${
+                        si.kind === "field" ? "mt-7" : "mt-2.5"
+                      }`}
                     >
                       <PreviewDragHandleIcon />
                     </div>
