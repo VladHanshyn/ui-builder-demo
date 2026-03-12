@@ -496,7 +496,6 @@ function AppSwitcher() {
   }, []);
 
   const apps = [
-    { id: "ui-builder", name: "UI Builder", icon: <AgentIcon />, active: false, href: "/" },
     { id: "phoenix", name: "Phoenix", icon: <PhoenixIcon />, active: false, href: "/phoenix" },
     { id: "components", name: "Components", icon: <ComponentsNavIcon />, active: true, href: "/components" },
   ];
@@ -606,7 +605,7 @@ export default function Home() {
         {/* Sidebar Navigation */}
         <Sidebar defaultActiveItem="components">
           <SidebarGroup>
-            <SidebarItem id="agent" icon={<AgentIcon />} label="UI Builder" href="/" />
+            <SidebarItem id="phoenix" icon={<PhoenixIcon />} label="Phoenix" href="/phoenix" />
             <SidebarItem id="components" icon={<ComponentsNavIcon />} label="Components" href="/components" />
           </SidebarGroup>
         </Sidebar>
