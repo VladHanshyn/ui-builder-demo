@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
+import { IconButton } from "@/components/ui/IconButton";
 import { Input } from "@/components/ui/Input";
 import { Checkbox } from "@/components/ui/Checkbox";
 import { ButtonGroup, ButtonGroupItem } from "@/components/ui/ButtonGroup";
@@ -246,12 +247,12 @@ export function WizardModal({
         {/* Робоча область: зліва 24px, справа 8px, зверху 8px, знизу 8px; Preview Area отримає додатковий pb окремо */}
         <div className="flex-1 flex min-h-0 pl-6 pr-2 pt-2 pb-2 gap-0">
           {/* Preview Area — додатковий відступ знизу 64px */}
-          <div className={`flex-1 min-w-0 min-h-0 pb-14 ${currentStep <= 1 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
+          <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep <= 1 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
             {currentStep === 0 && (
               <Step0PreviewArea intent={intent} updateIntent={updateIntent} />
             )}
             {currentStep === 1 && (
-              <Step1PreviewArea intent={intent} activeTab={step1ActiveTab} />
+              <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} />
             )}
             {currentStep === 2 && (
               <Step2PreviewArea intent={intent} />
@@ -281,11 +282,16 @@ export function WizardModal({
               <h3 className="text-xl font-medium text-[var(--color-base-primary)] mt-1">
                 {WIZARD_STEPS[currentStep]?.title}
               </h3>
-              <p className="text-sm text-[var(--color-base-secondary)] mt-1">
-                {currentStep === 0 && "Name your page and choose where it appears in the sidebar."}
-                {currentStep === 1 && "Configure the page users will see when creating or editing an item."}
-                {currentStep >= 2 && WIZARD_STEPS[currentStep]?.description}
-              </p>
+              {(currentStep !== 0 && currentStep !== 1) ? (
+                <p className="text-sm text-[var(--color-base-secondary)] mt-1">
+                  {WIZARD_STEPS[currentStep]?.description}
+                </p>
+              ) : (
+                <p className="text-sm text-[var(--color-base-secondary)] mt-1">
+                  {currentStep === 0 && "Name your page and choose where it appears in the sidebar."}
+                  {currentStep === 1 && "Configure the page users will see when creating or editing an item."}
+                </p>
+              )}
             </div>
             {/* Скроловане тіло */}
             <div
@@ -429,7 +435,7 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-visible">
+    <div className="h-full flex flex-col">
       {/* Надпис Preview — відступ до контенту 40px */}
       <p className="text-lg font-medium text-[var(--color-base-primary)] px-0 pt-4 mb-10 shrink-0">
         Preview
@@ -437,8 +443,8 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
 
       {/* Контейнер превʼю навігації: хедер + сайдбар в одному блоці зі stroke, білий фон; заходить під Right Panel */}
       <div
-        className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] mr-[-465px]"
-        style={{ minHeight: 200 }}
+        className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)]"
+        style={{ width: 850, flexShrink: 0, marginRight: -255, marginLeft: 192 }}
       >
         {/* Хедер превʼю */}
         <div className="h-10 border-b border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] flex items-center px-3 shrink-0">
@@ -475,7 +481,7 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
               {showNewSection && (
                 <div ref={newSectionRef} className="px-3 py-2.5 rounded-lg bg-[var(--color-brand-primary)]/10">
                   <p className="text-sm font-medium text-[var(--color-brand-primary)] truncate">
-                    {intent.navigation.newSectionName || "New Section"}
+                    {intent.navigation.newSectionName || "New Category"}
                   </p>
                 </div>
               )}
@@ -501,17 +507,6 @@ function Step0Form({ intent, updateIntent }: StepProps) {
   ]);
   const isDuplicateName = intent.title.trim().length > 0 &&
     allExistingPages.includes(intent.title.trim().toLowerCase());
-
-  const handleSectionSelect = (sectionId: string) => {
-    updateIntent({
-      navigation: {
-        ...intent.navigation,
-        parentSection: sectionId,
-        isNewSection: false,
-        newSectionName: "",
-      },
-    });
-  };
 
   const handleNewSection = () => {
     updateIntent({
@@ -543,29 +538,47 @@ function Step0Form({ intent, updateIntent }: StepProps) {
       </div>
       <div>
         <p className="text-sm font-medium text-[var(--color-base-primary)] mb-2">
-          Where to put this feature?
+          Where to add new feature?
         </p>
-        <div className="space-y-2 -mx-2">
+        {/* Preview: how it will appear in the structure */}
+        <div className="mb-3 px-3 py-2.5 rounded-lg border border-[var(--color-base-stroke)]">
+          <p className="text-xs text-[var(--color-base-tertiary)] mb-1">Preview in sidebar</p>
+          <p className="text-sm font-medium text-[var(--color-base-primary)]">
+            {showNewSection ? (
+              <span>
+                <span className="text-[var(--color-base-secondary)]">{intent.navigation.newSectionName || "New Category"}</span>
+                <span className="text-[var(--color-base-tertiary)] mx-1.5">&gt;</span>
+                <span className="text-[var(--color-brand-primary)]">{intent.title || "Feature Name"}</span>
+              </span>
+            ) : intent.navigation.parentSection ? (
+              <span>
+                <span className="text-[var(--color-base-secondary)]">{sections.find(s => s.id === intent.navigation.parentSection)?.label ?? "Category"}</span>
+                <span className="text-[var(--color-base-tertiary)] mx-1.5">&gt;</span>
+                <span className="text-[var(--color-brand-primary)]">{intent.title || "Feature Name"}</span>
+              </span>
+            ) : (
+              <span className="text-[var(--color-base-tertiary)]">Select a category in the Preview area</span>
+            )}
+          </p>
+        </div>
+        {!showNewSection ? (
           <button
             type="button"
             onClick={handleNewSection}
             onMouseDown={(e) => e.preventDefault()}
-            className={`w-full flex items-center gap-2 px-4 py-4 rounded-2xl text-left text-paragraph-2 transition-colors ${
-              showNewSection
-                ? "bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]"
-                : "text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)]"
-            }`}
+            className="w-full flex items-center gap-2 px-4 py-4 rounded-2xl text-left text-paragraph-2 transition-colors text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] -mx-2"
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="shrink-0">
               <path d="M12 5V19M5 12H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
             </svg>
-            New Section
+            New Category
           </button>
-          {showNewSection && (
-            <div className="px-4">
-              <label className="block text-sm font-medium text-[var(--color-base-primary)] mb-1.5">
-                New Section Name <span className="text-[var(--color-status-error)]">*</span>
-              </label>
+        ) : (
+          <div>
+            <label className="block text-sm font-medium text-[var(--color-base-primary)] mb-1.5">
+              Category Name
+            </label>
+            <div className="flex items-center gap-2">
               <Input
                 value={intent.navigation.newSectionName}
                 onChange={(e) =>
@@ -573,31 +586,26 @@ function Step0Form({ intent, updateIntent }: StepProps) {
                     navigation: { ...intent.navigation, newSectionName: e.target.value },
                   })
                 }
-                placeholder="e.g., VIP Store"
+                placeholder="New Category"
+                className="flex-1"
+                autoFocus
+              />
+              <IconButton
+                icon={
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <path d="M3.333 5.833H16.667M8.333 9.167V14.167M11.667 9.167V14.167M4.167 5.833L5 15.833C5 16.754 5.746 17.5 6.667 17.5H13.333C14.254 17.5 15 16.754 15 15.833L15.833 5.833M7.5 5.833V3.333C7.5 2.873 7.873 2.5 8.333 2.5H11.667C12.127 2.5 12.5 2.873 12.5 3.333V5.833" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                }
+                onClick={() => {
+                  updateIntent({
+                    navigation: { ...intent.navigation, parentSection: null, isNewSection: false, newSectionName: "" },
+                  });
+                }}
+                aria-label="Remove new category"
               />
             </div>
-          )}
-          {sections.map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              onClick={() => handleSectionSelect(section.id)}
-              onMouseDown={(e) => e.preventDefault()}
-              className={`w-full flex items-center gap-2 px-4 py-4 rounded-2xl text-left text-paragraph-2 transition-colors ${
-                !showNewSection && intent.navigation.parentSection === section.id
-                  ? "bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]"
-                  : "text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)]"
-              }`}
-            >
-              <div className={`shrink-0 size-4 rounded-full border-2 ${
-                !showNewSection && intent.navigation.parentSection === section.id
-                  ? "border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]"
-                  : "border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)]"
-              }`} />
-              {section.label}
-            </button>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -636,7 +644,7 @@ interface PreviewAccordionItem {
   expanded: boolean;
 }
 
-function Step1PreviewArea({ intent, activeTab }: { intent: WizardIntent; activeTab: "sections" | "properties" }) {
+function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardIntent; updateIntent: (updates: Partial<WizardIntent>) => void; activeTab: "sections" | "properties" }) {
   const config = intent.createPageConfig;
   const section = config.sections[0];
   const sectionConfig = section?.config as Record<string, unknown> | undefined;
@@ -649,6 +657,49 @@ function Step1PreviewArea({ intent, activeTab }: { intent: WizardIntent; activeT
     { id: "preview-1", name: "Section name", expanded: true },
   ]);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [fieldDragOverIdx, setFieldDragOverIdx] = useState<number | null>(null);
+  const [showDropZone, setShowDropZone] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  const setSectionItems = useCallback((next: SectionItem[]) => {
+    if (!section) return;
+    updateIntent({
+      createPageConfig: {
+        ...config,
+        sections: [{ ...section, config: { ...sectionConfig, items: next, fields: undefined, customActions: undefined } }],
+      },
+    });
+  }, [section, config, sectionConfig, updateIntent]);
+
+  const addFieldFromPalette = useCallback((type: string, label: string, atIndex?: number) => {
+    const kind = type === "action" ? "action" as const : "field" as const;
+    const newItem: SectionItem = kind === "action"
+      ? { id: `action-${Date.now()}`, kind: "action", label }
+      : { id: `field-${Date.now()}`, kind: "field", label, type };
+    const next = [...sectionItems];
+    if (atIndex !== undefined && atIndex >= 0) {
+      next.splice(atIndex, 0, newItem);
+    } else {
+      next.push(newItem);
+    }
+    setSectionItems(next);
+  }, [sectionItems, setSectionItems]);
+
+  const removeField = useCallback((fieldId: string) => {
+    setSectionItems(sectionItems.filter(i => i.id !== fieldId));
+  }, [sectionItems, setSectionItems]);
+
+  const updateField = useCallback((fieldId: string, updates: Partial<SectionItem>) => {
+    setSectionItems(sectionItems.map(i => i.id === fieldId ? { ...i, ...updates } as SectionItem : i));
+  }, [sectionItems, setSectionItems]);
+
+  const reorderFields = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    const next = [...sectionItems];
+    const [removed] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, removed);
+    setSectionItems(next);
+  }, [sectionItems, setSectionItems]);
 
   const addItem = () => {
     setItems(prev => [...prev, { id: `preview-${Date.now()}`, name: "Section name", expanded: true }]);
@@ -824,56 +875,210 @@ function Step1PreviewArea({ intent, activeTab }: { intent: WizardIntent; activeT
                         </button>
                       </div>
                     </div>
-                    {/* Accordion body — items in order */}
+                    {/* Accordion body — drop zone for palette + reorderable fields */}
                     {item.expanded && (
-                      <div className="p-4 space-y-4">
-                        {sectionItems.map((si) => {
-                          if (si.kind === "action") {
-                            return (
-                              <div key={si.id} className="flex flex-wrap gap-2">
-                                <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
-                              </div>
-                            );
+                      <div
+                        className="p-4 space-y-2 min-h-[60px] transition-colors"
+                        onDragOver={(e) => {
+                          if (e.dataTransfer.types.includes("palette-component")) {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "copy";
+                            setShowDropZone(true);
                           }
-                          const field = si;
-                          return (
-                            <div key={field.id}>
-                              <label className="block text-label-normal text-[var(--color-base-primary)] mb-1.5">
-                                {field.label}
-                                {field.required && <span className="text-[var(--color-status-error)]">*</span>}
-                              </label>
-                              {field.type === "textarea" ? (
-                                <textarea
-                                  disabled={field.readOnly}
-                                  placeholder={`Enter ${field.label}...`}
-                                  rows={3}
-                                  className="w-full px-3 py-2 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] disabled:opacity-50 resize-none"
-                                />
-                              ) : field.type === "select" || field.type === "multi-select" ? (
-                                <Select
-                                  disabled={field.readOnly}
-                                  placeholder={`Select ${field.label}...`}
-                                  options={[{ label: "Option 1", value: "1" }, { label: "Option 2", value: "2" }, { label: "Option 3", value: "3" }]}
-                                  multiple={field.type === "multi-select"}
-                                />
-                              ) : field.type === "date-time" ? (
-                                <Input disabled={field.readOnly} placeholder="Select Date and Time" rightIcon={
-                                  field.copyable ? <PreviewCopyIcon /> :
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
-                                    <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                                    <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                  </svg>
-                                } />
-                              ) : field.type === "number" ? (
-                                <Input disabled={field.readOnly} type="number" placeholder="0" rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined} />
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setShowDropZone(false);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          setShowDropZone(false);
+                          setFieldDragOverIdx(null);
+                          const paletteData = e.dataTransfer.getData("palette-component");
+                          if (paletteData) {
+                            e.preventDefault();
+                            try {
+                              const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+                              addFieldFromPalette(type, label);
+                            } catch { /* ignore */ }
+                          }
+                        }}
+                      >
+                        {sectionItems.map((si, fieldIdx) => (
+                          <div
+                            key={si.id}
+                            className={`group relative flex items-start gap-2 rounded-lg p-2 -mx-2 transition-all ${
+                              fieldDragOverIdx === fieldIdx
+                                ? "ring-2 ring-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5"
+                                : "hover:bg-[var(--color-base-surface-secondary)]"
+                            }`}
+                            onDragOver={(e) => {
+                              if (e.dataTransfer.types.includes("field-reorder")) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.dataTransfer.dropEffect = "move";
+                                setFieldDragOverIdx(fieldIdx);
+                              } else if (e.dataTransfer.types.includes("palette-component")) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                e.dataTransfer.dropEffect = "copy";
+                                setFieldDragOverIdx(fieldIdx);
+                              }
+                            }}
+                            onDragLeave={() => setFieldDragOverIdx(null)}
+                            onDrop={(e) => {
+                              e.stopPropagation();
+                              setFieldDragOverIdx(null);
+                              setShowDropZone(false);
+                              const reorderData = e.dataTransfer.getData("field-reorder");
+                              if (reorderData) {
+                                e.preventDefault();
+                                const fromIdx = Number(reorderData);
+                                if (!isNaN(fromIdx)) reorderFields(fromIdx, fieldIdx);
+                                return;
+                              }
+                              const paletteData = e.dataTransfer.getData("palette-component");
+                              if (paletteData) {
+                                e.preventDefault();
+                                try {
+                                  const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+                                  addFieldFromPalette(type, label, fieldIdx);
+                                } catch { /* ignore */ }
+                              }
+                            }}
+                          >
+                            {/* Drag handle for reorder */}
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData("field-reorder", String(fieldIdx));
+                                e.dataTransfer.effectAllowed = "move";
+                              }}
+                              onDragEnd={() => setFieldDragOverIdx(null)}
+                              className="shrink-0 mt-2.5 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <PreviewDragHandleIcon />
+                            </div>
+
+                            {/* Field content */}
+                            <div className="flex-1 min-w-0">
+                              {si.kind === "action" ? (
+                                <div className="pt-1">
+                                  <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+                                </div>
                               ) : (
-                                <Input disabled={field.readOnly} placeholder={`Enter ${field.label}...`} rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined} />
+                                <>
+                                  <div className="flex items-baseline gap-0.5 mb-1.5">
+                                    <input
+                                      type="text"
+                                      value={si.label}
+                                      onChange={(e) => updateField(si.id, { label: e.target.value })}
+                                      className="text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-0"
+                                      style={{ width: `${Math.max(si.label.length, 4)}ch` }}
+                                      placeholder="Field name"
+                                    />
+                                    {si.required && <span className="text-[var(--color-status-error)]">*</span>}
+                                  </div>
+                                  {si.type === "textarea" ? (
+                                    <textarea
+                                      disabled={si.readOnly}
+                                      placeholder={`Enter ${si.label}...`}
+                                      rows={3}
+                                      className="w-full px-3 py-2 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] disabled:opacity-50 resize-none"
+                                    />
+                                  ) : si.type === "select" || si.type === "multi-select" ? (
+                                    <Select
+                                      disabled={si.readOnly}
+                                      placeholder={`Select ${si.label}...`}
+                                      options={[{ label: "Option 1", value: "1" }, { label: "Option 2", value: "2" }, { label: "Option 3", value: "3" }]}
+                                      multiple={si.type === "multi-select"}
+                                    />
+                                  ) : si.type === "date-time" ? (
+                                    <Input disabled={si.readOnly} placeholder="Select Date and Time" rightIcon={
+                                      si.copyable ? <PreviewCopyIcon /> :
+                                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
+                                        <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+                                        <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                      </svg>
+                                    } />
+                                  ) : si.type === "number" ? (
+                                    <Input disabled={si.readOnly} type="number" placeholder="0" rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                                  ) : (
+                                    <Input disabled={si.readOnly} placeholder={`Enter ${si.label}...`} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                                  )}
+                                </>
                               )}
                             </div>
-                          );
-                        })}
-                        {sectionItems.length === 0 && (
-                          <p className="text-xs text-[var(--color-base-tertiary)] text-center py-4">No fields added</p>
+
+                            {/* More menu */}
+                            {si.kind === "field" && (
+                              <div className="relative shrink-0 mt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenMenuId(openMenuId === si.id ? null : si.id)}
+                                  className="p-1 rounded-md text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-all"
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                    <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
+                                    <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+                                    <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
+                                  </svg>
+                                </button>
+                                {openMenuId === si.id && (
+                                  <>
+                                    <div className="fixed inset-0 z-20" onClick={() => setOpenMenuId(null)} />
+                                    <div className="absolute right-0 top-8 z-30 w-56 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1">
+                                      <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                                        <Checkbox
+                                          checked={si.required || false}
+                                          onCheckedChange={() => { updateField(si.id, { required: !si.required }); }}
+                                        />
+                                        <span className="text-sm text-[var(--color-base-primary)]">Required</span>
+                                      </label>
+                                      <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                                        <Checkbox
+                                          checked={si.readOnly === true}
+                                          onCheckedChange={() => { updateField(si.id, { readOnly: !si.readOnly }); }}
+                                        />
+                                        <span className="text-sm text-[var(--color-base-primary)]">Read-only</span>
+                                      </label>
+                                      <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                                        <Checkbox
+                                          checked={si.copyable || false}
+                                          onCheckedChange={() => { updateField(si.id, { copyable: !si.copyable }); }}
+                                        />
+                                        <span className="text-sm text-[var(--color-base-primary)]">Copy to clipboard</span>
+                                      </label>
+                                      <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                                      <button
+                                        type="button"
+                                        onClick={() => { removeField(si.id); setOpenMenuId(null); }}
+                                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-status-error)]/10 transition-colors text-left"
+                                      >
+                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                          <path d="M2.667 4.667H13.333M6.667 7.333V11.333M9.333 7.333V11.333M3.333 4.667L4 12.667C4 13.403 4.597 14 5.333 14H10.667C11.403 14 12 13.403 12 12.667L12.667 4.667M6 4.667V2.667C6 2.299 6.299 2 6.667 2H9.333C9.701 2 10 2.299 10 2.667V4.667" stroke="var(--color-status-error)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                        </svg>
+                                        <span className="text-sm text-[var(--color-status-error)]">Delete</span>
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Drop placeholder when dragging from palette over empty area */}
+                        {(showDropZone || (sectionItems.length === 0)) && (
+                          <div className={`flex items-center justify-center rounded-lg border-2 border-dashed py-6 transition-colors ${
+                            showDropZone
+                              ? "border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/10"
+                              : "border-[var(--color-base-stroke)]"
+                          }`}>
+                            <p className={`text-sm ${showDropZone ? "text-[var(--color-brand-primary)] font-medium" : "text-[var(--color-base-tertiary)]"}`}>
+                              {showDropZone ? "Drop here" : "Drag components from the panel"}
+                            </p>
+                          </div>
                         )}
                       </div>
                     )}
@@ -1130,17 +1335,24 @@ function migrateSectionItems(cfg: Record<string, unknown> | undefined): SectionI
   ] as SectionItem[];
 }
 
+// Palette items for drag-and-drop onto Preview
+const PALETTE_ITEMS = [
+  { type: "input", label: "Input", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "select", label: "Select", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M11 7.5L13 9.5L11 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+  { type: "date-time", label: "Date Picker", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2 7.5H16M5.5 1V4M12.5 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "number", label: "Number", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 7.5H11M11 7.5V11.5M11 7.5L7 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+  { type: "textarea", label: "Textarea", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="2" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 6H13M5 9H13M5 12H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "action", label: "Button", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="5" width="14" height="8" rx="4" stroke="currentColor" strokeWidth="1.5"/><path d="M7 9H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+];
+
 // Step 1: Create Page (P-03) — tabbed: Properties Panel + Content Sections
 function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepProps & { activeTab: "sections" | "properties"; setActiveTab: (tab: "sections" | "properties") => void }) {
   const config = intent.createPageConfig;
   const selectedType = config.sections[0]?.type ?? null;
   const section = config.sections[0];
   const sectionConfig = section?.config as { items?: SectionItem[]; fields?: Array<Record<string, unknown>>; customActions?: Array<Record<string, unknown>>; actions?: string[]; titleField?: string; addLabel?: string; hasStatusToggle?: boolean; enableReorder?: boolean } | undefined;
-  const items = migrateSectionItems(sectionConfig as Record<string, unknown> | undefined);
   const accordionActions = sectionConfig?.actions ?? ["copy", "delete"];
   const enableReorder = sectionConfig?.enableReorder !== false;
-
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const selectPattern = (type: string) => {
     const labels: Record<string, string> = {
@@ -1169,59 +1381,11 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
     });
   };
 
-  const setItems = (next: SectionItem[]) => {
-    updateSectionConfig({ items: next, fields: undefined, customActions: undefined });
-  };
-
-  const addField = () => {
-    const newField: SectionItem = { id: `field-${Date.now()}`, kind: "field", label: "New Field", type: "input" };
-    setItems([...items, newField]);
-  };
-
-  const addAction = () => {
-    const newAction: SectionItem = { id: `action-${Date.now()}`, kind: "action", label: "New Action" };
-    setItems([...items, newAction]);
-  };
-
-  const removeItem = (itemId: string) => {
-    setItems(items.filter(i => i.id !== itemId));
-  };
-
-  const updateItem = (itemId: string, updates: Record<string, unknown>) => {
-    setItems(items.map(i => (i.id === itemId ? { ...i, ...updates } : i)));
-  };
-
   const toggleAccordionAction = (action: string) => {
     const next = accordionActions.includes(action)
       ? accordionActions.filter(a => a !== action)
       : [...accordionActions, action];
     updateSectionConfig({ actions: next });
-  };
-
-  const reorderItems = (fromIndex: number, toIndex: number) => {
-    if (fromIndex === toIndex) return;
-    const next = [...items];
-    const [removed] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, removed);
-    setItems(next);
-  };
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.setData("text/plain", String(index));
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setDragOverIndex(index);
-  };
-
-  const handleDrop = (e: React.DragEvent, toIndex: number) => {
-    e.preventDefault();
-    setDragOverIndex(null);
-    const fromIndex = Number(e.dataTransfer.getData("text/plain"));
-    if (!isNaN(fromIndex)) reorderItems(fromIndex, toIndex);
   };
 
   return (
@@ -1367,126 +1531,27 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
               </label>
             </div>
 
-            <p className="text-sm font-medium text-[var(--color-base-primary)]">Fields &amp; Actions</p>
+            <p className="text-sm font-medium text-[var(--color-base-primary)]">Components</p>
+            <p className="text-xs text-[var(--color-base-tertiary)]">Drag components to the Preview area</p>
 
-            {/* Unified items list */}
-            <div className="space-y-2">
-              {items.map((item, index) => (
+            {/* Component palette */}
+            <div className="grid grid-cols-2 gap-2">
+              {PALETTE_ITEMS.map((pi) => (
                 <div
-                  key={item.id}
-                  className={`flex items-center gap-1 transition-colors ${dragOverIndex === index ? "bg-[var(--color-brand-primary)]/10 rounded-2xl" : ""}`}
-                  onDragOver={(e) => handleDragOver(e, index)}
-                  onDragLeave={() => setDragOverIndex(null)}
-                  onDrop={(e) => handleDrop(e, index)}
+                  key={pi.type}
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                    e.dataTransfer.effectAllowed = "copy";
+                  }}
+                  className="flex items-center gap-2.5 px-3 py-3 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] cursor-grab active:cursor-grabbing hover:border-[var(--color-base-tertiary)] hover:shadow-sm transition-all select-none"
                 >
-                  {/* Drag handle */}
-                  <div
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, index)}
-                    onDragEnd={() => setDragOverIndex(null)}
-                    className="shrink-0 text-[var(--color-base-tertiary)] cursor-grab active:cursor-grabbing touch-none"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                      <path d="M5 3H7V5H5V3ZM9 3H11V5H9V3ZM5 7H7V9H5V7ZM9 7H11V9H9V7ZM5 11H7V13H5V11ZM9 11H11V13H9V11Z" fill="currentColor"/>
-                    </svg>
-                  </div>
-
-                  {item.kind === "field" ? (
-                    /* Field card */
-                    <div className="flex-1 min-w-0 border border-[var(--color-base-stroke)] rounded-2xl p-4 space-y-2">
-                      <div className="flex gap-2">
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <p className="text-sm font-medium text-[var(--color-base-primary)]">Input Name</p>
-                          <Input
-                            value={item.label}
-                            onChange={(e) => updateItem(item.id, { label: e.target.value })}
-                            placeholder="Title"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0 space-y-1">
-                          <p className="text-sm font-medium text-[var(--color-base-primary)]">Type</p>
-                          <select
-                            value={item.type === "readonly" ? "input" : item.type}
-                            onChange={(e) => updateItem(item.id, { type: e.target.value })}
-                            className="w-full px-2 py-1.5 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)]"
-                          >
-                            <option value="input">Input</option>
-                            <option value="textarea">Textarea</option>
-                            <option value="select">Select</option>
-                            <option value="date-time">Date &amp; Time</option>
-                            <option value="number">Number</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-4">
-                        <WizardCheckbox
-                          label="Req."
-                          checked={item.required || false}
-                          onCheckedChange={() => updateItem(item.id, { required: !item.required })}
-                        />
-                        <WizardCheckbox
-                          label="Read-only"
-                          checked={item.readOnly === true || item.type === "readonly"}
-                          onCheckedChange={() => {
-                            const next = !(item.readOnly === true || item.type === "readonly");
-                            updateItem(item.id, { readOnly: next });
-                          }}
-                        />
-                        <WizardCheckbox
-                          label="Enable Copy to Clipboard"
-                          checked={item.copyable || false}
-                          onCheckedChange={() => updateItem(item.id, { copyable: !item.copyable })}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    /* Action card */
-                    <div className="flex-1 min-w-0 rounded-2xl p-4 space-y-1 bg-[var(--color-brand-primary)]/5">
-                      <p className="text-sm font-medium text-[var(--color-brand-primary)]">Action Button</p>
-                      <Input
-                        value={item.label}
-                        onChange={(e) => updateItem(item.id, { label: e.target.value })}
-                        placeholder="Action name"
-                      />
-                    </div>
-                  )}
-
-                  {/* Delete button */}
-                  <button
-                    type="button"
-                    onClick={() => removeItem(item.id)}
-                    className="shrink-0 size-8 flex items-center justify-center rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] transition-colors"
-                  >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                  </button>
+                  <span className="shrink-0 size-8 flex items-center justify-center rounded-lg bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)]">
+                    {pi.icon}
+                  </span>
+                  <span className="text-sm font-medium text-[var(--color-base-primary)]">{pi.label}</span>
                 </div>
               ))}
-            </div>
-
-            {/* Add Field + Add Action buttons */}
-            <div className="space-y-2 pl-6">
-              <button
-                type="button"
-                onClick={addField}
-                className="w-full flex items-center justify-center gap-1 py-1 px-4 rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-sm font-medium text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
-              >
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M10 4V16M4 10H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-                Add Field
-              </button>
-              <button
-                type="button"
-                onClick={addAction}
-                className="w-full flex items-center justify-center gap-1 py-1 px-4 rounded-lg bg-[var(--color-brand-primary)]/5 text-sm font-medium text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/10 transition-colors"
-              >
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                  <path d="M10 4V16M4 10H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-                Add Action
-              </button>
             </div>
           </div>
         </>
