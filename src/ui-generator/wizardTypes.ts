@@ -5,10 +5,18 @@
 import type { FieldRef } from "./fieldCatalog";
 
 // Navigation placement config
+export interface CustomSection {
+  id: string;
+  label: string;
+  icon: string;
+}
+
 export interface NavigationConfig {
   parentSection: string | null;
   newSectionName: string;
+  newSectionIcon: string;
   isNewSection: boolean;
+  customSections: CustomSection[];
 }
 
 // Scope options
@@ -138,9 +146,11 @@ export function createDefaultWizardIntent(): WizardIntent {
     title: "",
     description: "",
     navigation: {
-      parentSection: null,
+      parentSection: "audiences",
       newSectionName: "",
+      newSectionIcon: "features",
       isNewSection: false,
+      customSections: [],
     },
     createPageConfig: {
       propertiesPanel: {

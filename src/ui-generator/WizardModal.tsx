@@ -1,5 +1,8 @@
 "use client";
 
+let _uidSeq = 0;
+function uid(prefix: string) { return `${prefix}-${Date.now()}-${++_uidSeq}`; }
+
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
@@ -414,22 +417,68 @@ function SectionIcon({ icon, className }: { icon: string; className?: string }) 
 function Step0PreviewArea({ intent, updateIntent }: StepProps) {
   const [navState] = React.useState(() => getNavigationState());
   const sections = getSectionsForPickerFn(navState);
-  const showNewSection = intent.navigation.isNewSection;
   const newSectionRef = React.useRef<HTMLDivElement>(null);
+  const iconBtnRef = React.useRef<HTMLButtonElement>(null);
+  const [isEditingNew, setIsEditingNew] = React.useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = React.useState(false);
+  const [pickerPos, setPickerPos] = React.useState<{ top: number; left: number }>({ top: 0, left: 0 });
 
   React.useEffect(() => {
-    if (showNewSection && newSectionRef.current) {
+    if (isEditingNew && newSectionRef.current) {
       newSectionRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [showNewSection, intent.navigation.newSectionName]);
+  }, [isEditingNew]);
+
+  const customSections = intent.navigation.customSections ?? [];
 
   const handleSectionSelect = (sectionId: string) => {
+    setIsEditingNew(false);
     updateIntent({
       navigation: {
         ...intent.navigation,
         parentSection: sectionId,
         isNewSection: false,
         newSectionName: "",
+        newSectionIcon: "features",
+      },
+    });
+  };
+
+  const confirmNewCategory = () => {
+    const name = intent.navigation.newSectionName.trim();
+    if (!name) return;
+    const id = uid("custom");
+    const icon = intent.navigation.newSectionIcon || "features";
+    setIsEditingNew(false);
+    updateIntent({
+      navigation: {
+        ...intent.navigation,
+        parentSection: id,
+        isNewSection: false,
+        newSectionName: "",
+        newSectionIcon: "features",
+        customSections: [...customSections, { id, label: name, icon }],
+      },
+    });
+  };
+
+  const removeCustomSection = (sectionId: string) => {
+    const next = customSections.filter(s => s.id !== sectionId);
+    setIconPickerOpen(false);
+    updateIntent({
+      navigation: {
+        ...intent.navigation,
+        parentSection: intent.navigation.parentSection === sectionId ? null : intent.navigation.parentSection,
+        customSections: next,
+      },
+    });
+  };
+
+  const updateCustomSectionIcon = (sectionId: string, icon: string) => {
+    updateIntent({
+      navigation: {
+        ...intent.navigation,
+        customSections: customSections.map(s => s.id === sectionId ? { ...s, icon } : s),
       },
     });
   };
@@ -458,7 +507,7 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
         <div className="flex flex-1 min-h-0">
           {/* Бокова навігація — surface-secondary */}
           <div className="w-64 shrink-0 flex flex-col overflow-hidden bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)]">
-            <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0">
+            <div className="flex-1 overflow-y-auto p-2 space-y-0.5 min-h-0 hide-scrollbar">
               {sections.map((section) => (
                 <button
                   key={section.id}
@@ -466,7 +515,7 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
                   onClick={() => handleSectionSelect(section.id)}
                   onMouseDown={(e) => e.preventDefault()}
                   className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-left text-sm transition-colors ${
-                    !showNewSection && intent.navigation.parentSection === section.id
+                    intent.navigation.parentSection === section.id
                       ? "bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]"
                       : "text-[var(--color-base-primary)] hover:bg-[var(--color-base-stroke)]/20"
                   }`}
@@ -478,14 +527,144 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
                   )}
                 </button>
               ))}
-              {showNewSection && (
-                <div ref={newSectionRef} className="px-3 py-2.5 rounded-lg bg-[var(--color-brand-primary)]/10">
-                  <p className="text-sm font-medium text-[var(--color-brand-primary)] truncate">
-                    {intent.navigation.newSectionName || "New Category"}
-                  </p>
+              {/* Custom (user-created) category (max 1) */}
+              {customSections.slice(0, 1).map((cs) => (
+                <div
+                  key={cs.id}
+                  className={`w-full flex items-center gap-1.5 pl-1.5 pr-2 py-1.5 rounded-lg text-left text-sm transition-colors cursor-pointer ${
+                    intent.navigation.parentSection === cs.id
+                      ? "bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]"
+                      : "text-[var(--color-base-primary)] hover:bg-[var(--color-base-stroke)]/20"
+                  }`}
+                  onClick={() => handleSectionSelect(cs.id)}
+                >
+                  <IconButton
+                    ref={iconBtnRef}
+                    icon={<SectionIcon icon={cs.icon} />}
+                    aria-label="Change icon"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (iconBtnRef.current) {
+                        const rect = iconBtnRef.current.getBoundingClientRect();
+                        setPickerPos({ top: rect.top, left: rect.left });
+                      }
+                      setIconPickerOpen(!iconPickerOpen);
+                    }}
+                  />
+                  {iconPickerOpen && createPortal(
+                    <>
+                      <div className="fixed inset-0 z-[9998]" onClick={() => setIconPickerOpen(false)} />
+                      <div
+                        className="fixed z-[9999] grid grid-cols-4 gap-1 p-2 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg"
+                        style={{ bottom: `calc(100vh - ${pickerPos.top}px + 4px)`, left: pickerPos.left }}
+                      >
+                        {Object.keys(SECTION_ICONS).map((iconKey) => (
+                          <button
+                            key={iconKey}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              updateCustomSectionIcon(cs.id, iconKey);
+                              setIconPickerOpen(false);
+                            }}
+                            className={`p-2 rounded-lg transition-colors ${
+                              cs.icon === iconKey
+                                ? "bg-[var(--color-brand-primary)]/10 text-[var(--color-brand-primary)]"
+                                : "text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)]"
+                            }`}
+                            title={iconKey}
+                          >
+                            <SectionIcon icon={iconKey} />
+                          </button>
+                        ))}
+                      </div>
+                    </>,
+                    document.body
+                  )}
+                  <span className="flex-1 truncate font-medium">{cs.label}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); removeCustomSection(cs.id); }}
+                    className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-colors"
+                    title="Delete category"
+                  >
+                    <PreviewDeleteIcon />
+                  </button>
+                </div>
+              ))}
+              {/* Inline input for new category being created */}
+              {isEditingNew && (
+                <div ref={newSectionRef} className="flex items-center gap-1 px-1 py-1 rounded-lg bg-[var(--color-brand-primary)]/10">
+                  <input
+                    type="text"
+                    value={intent.navigation.newSectionName}
+                    onChange={(e) =>
+                      updateIntent({
+                        navigation: { ...intent.navigation, newSectionName: e.target.value },
+                      })
+                    }
+                    placeholder="New Category"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && intent.navigation.newSectionName.trim()) {
+                        confirmNewCategory();
+                      } else if (e.key === "Escape") {
+                        setIsEditingNew(false);
+                        updateIntent({ navigation: { ...intent.navigation, isNewSection: false, newSectionName: "", newSectionIcon: "features" } });
+                      }
+                    }}
+                    className="flex-1 min-w-0 px-2 py-1.5 text-sm font-medium text-[var(--color-brand-primary)] bg-transparent border-0 outline-none placeholder:text-[var(--color-brand-primary)]/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => confirmNewCategory()}
+                    disabled={!intent.navigation.newSectionName.trim()}
+                    className="shrink-0 p-1 rounded-md text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    title="Confirm category"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M2.5 7.5L5.5 10.5L11.5 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingNew(false);
+                      updateIntent({
+                        navigation: { ...intent.navigation, isNewSection: false, newSectionName: "", newSectionIcon: "features" },
+                      });
+                    }}
+                    className="shrink-0 p-1 rounded-md text-[var(--color-brand-primary)]/50 hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-colors"
+                    title="Cancel"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M3 3L11 11M11 3L3 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                  </button>
                 </div>
               )}
             </div>
+            {/* New Category button at bottom — hidden if one custom category exists */}
+            {!isEditingNew && customSections.length === 0 && (
+              <div className="shrink-0 p-2 border-t border-[var(--color-base-stroke)]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingNew(true);
+                    updateIntent({
+                      navigation: { ...intent.navigation, isNewSection: true, newSectionName: "", newSectionIcon: "features" },
+                    });
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/10 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                    <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                  New Category
+                </button>
+              </div>
+            )}
           </div>
           {/* Основна область контенту превʼю — без фону */}
           <div className="flex-1 min-w-0 bg-transparent" />
@@ -499,7 +678,6 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
 function Step0Form({ intent, updateIntent }: StepProps) {
   const [navState] = React.useState(() => getNavigationState());
   const sections = getSectionsForPickerFn(navState);
-  const showNewSection = intent.navigation.isNewSection;
 
   const allExistingPages = navState.sections.flatMap(s => [
     s.label.toLowerCase(),
@@ -508,15 +686,10 @@ function Step0Form({ intent, updateIntent }: StepProps) {
   const isDuplicateName = intent.title.trim().length > 0 &&
     allExistingPages.includes(intent.title.trim().toLowerCase());
 
-  const handleNewSection = () => {
-    updateIntent({
-      navigation: {
-        ...intent.navigation,
-        parentSection: null,
-        isNewSection: true,
-      },
-    });
-  };
+  const customSection = (intent.navigation.customSections ?? []).find(s => s.id === intent.navigation.parentSection);
+  const parentLabel = intent.navigation.isNewSection
+    ? intent.navigation.newSectionName || "New Category"
+    : customSection?.label ?? sections.find(s => s.id === intent.navigation.parentSection)?.label;
 
   return (
     <div className="space-y-6 px-4">
@@ -536,76 +709,22 @@ function Step0Form({ intent, updateIntent }: StepProps) {
           </p>
         )}
       </div>
+
       <div>
-        <p className="text-sm font-medium text-[var(--color-base-primary)] mb-2">
-          Where to add new feature?
-        </p>
-        {/* Preview: how it will appear in the structure */}
-        <div className="mb-3 px-3 py-2.5 rounded-lg border border-[var(--color-base-stroke)]">
-          <p className="text-xs text-[var(--color-base-tertiary)] mb-1">Preview in sidebar</p>
-          <p className="text-sm font-medium text-[var(--color-base-primary)]">
-            {showNewSection ? (
-              <span>
-                <span className="text-[var(--color-base-secondary)]">{intent.navigation.newSectionName || "New Category"}</span>
-                <span className="text-[var(--color-base-tertiary)] mx-1.5">&gt;</span>
-                <span className="text-[var(--color-brand-primary)]">{intent.title || "Feature Name"}</span>
-              </span>
-            ) : intent.navigation.parentSection ? (
-              <span>
-                <span className="text-[var(--color-base-secondary)]">{sections.find(s => s.id === intent.navigation.parentSection)?.label ?? "Category"}</span>
-                <span className="text-[var(--color-base-tertiary)] mx-1.5">&gt;</span>
-                <span className="text-[var(--color-brand-primary)]">{intent.title || "Feature Name"}</span>
-              </span>
-            ) : (
-              <span className="text-[var(--color-base-tertiary)]">Select a category in the Preview area</span>
-            )}
-          </p>
+        <label className="block text-sm font-medium text-[var(--color-base-primary)] mb-1">
+          Path
+        </label>
+        <div className="px-4 py-3 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)]">
+          {parentLabel ? (
+            <p className="text-sm font-medium">
+              <span className="text-[var(--color-base-secondary)]">{parentLabel}</span>
+              <span className="text-[var(--color-base-tertiary)] mx-1.5">&gt;</span>
+              <span className="text-[var(--color-brand-primary)]">{intent.title || "Feature Name"}</span>
+            </p>
+          ) : (
+            <p className="text-sm text-[var(--color-base-tertiary)]">Select a category in the Preview area</p>
+          )}
         </div>
-        {!showNewSection ? (
-          <button
-            type="button"
-            onClick={handleNewSection}
-            onMouseDown={(e) => e.preventDefault()}
-            className="w-full flex items-center gap-2 px-4 py-4 rounded-2xl text-left text-paragraph-2 transition-colors text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] -mx-2"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="shrink-0">
-              <path d="M12 5V19M5 12H19" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-            New Category
-          </button>
-        ) : (
-          <div>
-            <label className="block text-sm font-medium text-[var(--color-base-primary)] mb-1.5">
-              Category Name
-            </label>
-            <div className="flex items-center gap-2">
-              <Input
-                value={intent.navigation.newSectionName}
-                onChange={(e) =>
-                  updateIntent({
-                    navigation: { ...intent.navigation, newSectionName: e.target.value },
-                  })
-                }
-                placeholder="New Category"
-                className="flex-1"
-                autoFocus
-              />
-              <IconButton
-                icon={
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <path d="M3.333 5.833H16.667M8.333 9.167V14.167M11.667 9.167V14.167M4.167 5.833L5 15.833C5 16.754 5.746 17.5 6.667 17.5H13.333C14.254 17.5 15 16.754 15 15.833L15.833 5.833M7.5 5.833V3.333C7.5 2.873 7.873 2.5 8.333 2.5H11.667C12.127 2.5 12.5 2.873 12.5 3.333V5.833" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                }
-                onClick={() => {
-                  updateIntent({
-                    navigation: { ...intent.navigation, parentSection: null, isNewSection: false, newSectionName: "" },
-                  });
-                }}
-                aria-label="Remove new category"
-              />
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -657,9 +776,102 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
     { id: "preview-1", name: "Section name", expanded: true },
   ]);
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-  const [fieldDragOverIdx, setFieldDragOverIdx] = useState<number | null>(null);
-  const [showDropZone, setShowDropZone] = useState(false);
+  const [draggingAccordionIdx, setDraggingAccordionIdx] = useState<number | null>(null);
+  const [dropInsertIdx, setDropInsertIdx] = useState<number | null>(null);
+  const [rowJoinTarget, setRowJoinTarget] = useState<string | null>(null);
+  const [hReorderTarget, setHReorderTarget] = useState<{ fieldId: string; side: "left" | "right" } | null>(null);
+  const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
+  const dropContainerRef = React.useRef<HTMLDivElement>(null);
+  const scrollContainerRef = React.useRef<HTMLDivElement>(null);
+  const autoScrollRef = React.useRef<number | null>(null);
+
+  const autoScrollSpeedRef = React.useRef(0);
+
+  const startAutoScroll = useCallback((clientY: number) => {
+    if (!scrollContainerRef.current) return;
+    const el = scrollContainerRef.current;
+    const rect = el.getBoundingClientRect();
+    const edgeZone = 60;
+    const topDist = clientY - rect.top;
+    const bottomDist = rect.bottom - clientY;
+
+    let speed = 0;
+    if (topDist < edgeZone) {
+      speed = -Math.max(2, (edgeZone - topDist) / 3);
+    } else if (bottomDist < edgeZone) {
+      speed = Math.max(2, (edgeZone - bottomDist) / 3);
+    }
+
+    autoScrollSpeedRef.current = speed;
+
+    if (speed === 0) {
+      if (autoScrollRef.current) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
+      return;
+    }
+    if (autoScrollRef.current) return;
+
+    const tick = () => {
+      if (!scrollContainerRef.current || autoScrollSpeedRef.current === 0) {
+        autoScrollRef.current = null;
+        return;
+      }
+      scrollContainerRef.current.scrollTop += autoScrollSpeedRef.current;
+      autoScrollRef.current = requestAnimationFrame(tick);
+    };
+    autoScrollRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRef.current) { cancelAnimationFrame(autoScrollRef.current); autoScrollRef.current = null; }
+  }, []);
+  
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  React.useEffect(() => {
+    if (!openMenuId) return;
+    const close = () => setOpenMenuId(null);
+    const onScroll = () => close();
+    const scrollEl = scrollContainerRef.current;
+    if (scrollEl) scrollEl.addEventListener("scroll", onScroll, { passive: true });
+    document.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    return () => {
+      if (scrollEl) scrollEl.removeEventListener("scroll", onScroll);
+      document.removeEventListener("scroll", onScroll, { capture: true });
+    };
+  }, [openMenuId]);
+
+  const rows = groupByRows(sectionItems);
+
+  const calcDropIndex = useCallback((clientY: number): number => {
+    if (!dropContainerRef.current) return -1;
+    const rowEls = dropContainerRef.current.querySelectorAll<HTMLElement>("[data-row-idx]");
+    if (rowEls.length === 0) return 0;
+
+    const zone = 24;
+
+    const firstRect = rowEls[0].getBoundingClientRect();
+    if (clientY < firstRect.top + zone) return 0;
+
+    for (let i = 0; i < rowEls.length - 1; i++) {
+      const bottomEdge = rowEls[i].getBoundingClientRect().bottom;
+      const topEdge = rowEls[i + 1].getBoundingClientRect().top;
+      const boundary = (bottomEdge + topEdge) / 2;
+      if (clientY > boundary - zone && clientY < boundary + zone) return i + 1;
+    }
+
+    const lastRect = rowEls[rowEls.length - 1].getBoundingClientRect();
+    if (clientY > lastRect.bottom - zone) return rowEls.length;
+
+    return -1;
+  }, [rows.length]);
+
+  React.useEffect(() => {
+    const clear = () => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); setDraggingFieldId(null); stopAutoScroll(); };
+    document.addEventListener("dragend", clear);
+    document.addEventListener("drop", clear);
+    return () => { document.removeEventListener("dragend", clear); document.removeEventListener("drop", clear); };
+  }, [stopAutoScroll]);
 
   const setSectionItems = useCallback((next: SectionItem[]) => {
     if (!section) return;
@@ -671,11 +883,29 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
     });
   }, [section, config, sectionConfig, updateIntent]);
 
-  const addFieldFromPalette = useCallback((type: string, label: string, atIndex?: number) => {
+  const addFieldFromPalette = useCallback((type: string, label: string, atIndex?: number, joinRowId?: string) => {
     const kind = type === "action" ? "action" as const : "field" as const;
+    const newId = uid(kind);
+    const rowHasAction = joinRowId ? sectionItems.some(i => i.rowId === joinRowId && i.kind === "action") : false;
+    const rowHasTextarea = joinRowId ? sectionItems.some(i => i.rowId === joinRowId && i.kind === "field" && i.type === "textarea") : false;
+    const effectiveJoinRowId = (kind === "action" || rowHasAction || type === "textarea" || rowHasTextarea) ? undefined : joinRowId;
+    const rowId = effectiveJoinRowId || newId;
     const newItem: SectionItem = kind === "action"
-      ? { id: `action-${Date.now()}`, kind: "action", label }
-      : { id: `field-${Date.now()}`, kind: "field", label, type };
+      ? { id: newId, kind: "action", label, rowId }
+      : { id: newId, kind: "field", label, type, rowId };
+
+    if (effectiveJoinRowId) {
+      const rowCount = sectionItems.filter(i => i.rowId === effectiveJoinRowId).length;
+      if (rowCount >= 3) return;
+      const lastIdx = sectionItems.findLastIndex(i => i.rowId === effectiveJoinRowId);
+      if (lastIdx !== -1) {
+        const next = [...sectionItems];
+        next.splice(lastIdx + 1, 0, newItem);
+        setSectionItems(next);
+        return;
+      }
+    }
+
     const next = [...sectionItems];
     if (atIndex !== undefined && atIndex >= 0) {
       next.splice(atIndex, 0, newItem);
@@ -689,6 +919,10 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
     setSectionItems(sectionItems.filter(i => i.id !== fieldId));
   }, [sectionItems, setSectionItems]);
 
+  const splitFromRow = useCallback((fieldId: string) => {
+    setSectionItems(sectionItems.map(i => i.id === fieldId ? { ...i, rowId: i.id } : i));
+  }, [sectionItems, setSectionItems]);
+
   const updateField = useCallback((fieldId: string, updates: Partial<SectionItem>) => {
     setSectionItems(sectionItems.map(i => i.id === fieldId ? { ...i, ...updates } as SectionItem : i));
   }, [sectionItems, setSectionItems]);
@@ -697,12 +931,46 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
     if (fromIndex === toIndex) return;
     const next = [...sectionItems];
     const [removed] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, removed);
+    const movedItem = { ...removed, rowId: uid("row") };
+    const adjustedTo = fromIndex < toIndex ? toIndex - 1 : toIndex;
+    next.splice(adjustedTo, 0, movedItem);
+    setSectionItems(next);
+  }, [sectionItems, setSectionItems]);
+
+  const moveFieldToRow = useCallback((dragFieldId: string, targetRowId: string) => {
+    const next = [...sectionItems];
+    const fromIdx = next.findIndex(i => i.id === dragFieldId);
+    if (fromIdx === -1) return;
+    const dragItem = next[fromIdx];
+    if (dragItem.rowId === targetRowId) return;
+    if (dragItem.kind === "action") return;
+    if (dragItem.kind === "field" && dragItem.type === "textarea") return;
+    if (next.some(i => i.rowId === targetRowId && i.kind === "action")) return;
+    if (next.some(i => i.rowId === targetRowId && i.kind === "field" && i.type === "textarea")) return;
+    if (next.filter(i => i.rowId === targetRowId).length >= 3) return;
+    next.splice(fromIdx, 1);
+    const lastInRow = next.findLastIndex(i => i.rowId === targetRowId);
+    next.splice(lastInRow + 1, 0, { ...dragItem, rowId: targetRowId });
+    setSectionItems(next);
+  }, [sectionItems, setSectionItems]);
+
+  const reorderWithinRow = useCallback((dragFieldId: string, targetFieldId: string, side: "left" | "right") => {
+    if (dragFieldId === targetFieldId) return;
+    const next = [...sectionItems];
+    const fromIdx = next.findIndex(i => i.id === dragFieldId);
+    if (fromIdx === -1) return;
+    const dragItem = next[fromIdx];
+    const targetItem = next.find(i => i.id === targetFieldId);
+    if (!targetItem || dragItem.rowId !== targetItem.rowId) return;
+    next.splice(fromIdx, 1);
+    const targetIdx = next.findIndex(i => i.id === targetFieldId);
+    const insertIdx = side === "left" ? targetIdx : targetIdx + 1;
+    next.splice(insertIdx, 0, dragItem);
     setSectionItems(next);
   }, [sectionItems, setSectionItems]);
 
   const addItem = () => {
-    setItems(prev => [...prev, { id: `preview-${Date.now()}`, name: "Section name", expanded: true }]);
+    setItems(prev => [...prev, { id: uid("preview"), name: "Section name", expanded: true }]);
   };
 
   const expandAll = () => setItems(prev => prev.map(i => ({ ...i, expanded: true })));
@@ -721,7 +989,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
       const idx = prev.findIndex(i => i.id === id);
       if (idx === -1) return prev;
       const src = prev[idx];
-      const copy = { ...src, id: `preview-${Date.now()}`, name: src.name };
+      const copy = { ...src, id: uid("preview"), name: src.name };
       const next = [...prev];
       next.splice(idx + 1, 0, copy);
       return next;
@@ -730,26 +998,67 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
 
   const handleDragStart = (e: React.DragEvent, idx: number) => {
     e.dataTransfer.setData("application/json", JSON.stringify({ index: idx }));
+    e.dataTransfer.setData("accordion-reorder", "1");
     e.dataTransfer.effectAllowed = "move";
+    setDraggingAccordionIdx(idx);
+
+    const row = (e.target as HTMLElement).closest("[data-accordion-idx]") as HTMLElement | null;
+    if (row) {
+      const clone = row.cloneNode(true) as HTMLElement;
+      clone.style.width = `${row.offsetWidth}px`;
+      clone.style.position = "absolute";
+      clone.style.top = "-9999px";
+      clone.style.left = "-9999px";
+      clone.style.opacity = "0.9";
+      clone.style.borderRadius = "8px";
+      clone.style.overflow = "hidden";
+      clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+      document.body.appendChild(clone);
+      const handleRect = (e.target as HTMLElement).closest(".cursor-grab")?.getBoundingClientRect();
+      const rowRect = row.getBoundingClientRect();
+      const offsetX = handleRect ? handleRect.left - rowRect.left + handleRect.width / 2 : e.clientX - rowRect.left;
+      const offsetY = handleRect ? handleRect.top - rowRect.top + handleRect.height / 2 : e.clientY - rowRect.top;
+      e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+      requestAnimationFrame(() => document.body.removeChild(clone));
+    }
   };
 
-  const handleDragOver = (e: React.DragEvent, idx: number) => {
+  const handleAccordionContainerDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("accordion-reorder")) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    setDragOverIdx(idx);
+
+    const container = e.currentTarget as HTMLElement;
+    const accordionEls = Array.from(container.querySelectorAll("[data-accordion-idx]")) as HTMLElement[];
+    const y = e.clientY;
+    let insertIdx = accordionEls.length;
+    for (let i = 0; i < accordionEls.length; i++) {
+      const rect = accordionEls[i].getBoundingClientRect();
+      if (y < rect.top + rect.height / 2) { insertIdx = i; break; }
+    }
+    if (draggingAccordionIdx !== null && (insertIdx === draggingAccordionIdx || insertIdx === draggingAccordionIdx + 1)) {
+      setDragOverIdx(null);
+    } else {
+      setDragOverIdx(insertIdx);
+    }
   };
 
-  const handleDrop = (e: React.DragEvent, toIdx: number) => {
+  const handleAccordionContainerDrop = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("accordion-reorder")) return;
     e.preventDefault();
+    const insertAt = dragOverIdx;
     setDragOverIdx(null);
+    setDraggingAccordionIdx(null);
+    if (insertAt === null) return;
     try {
       const data = JSON.parse(e.dataTransfer.getData("application/json")) as { index: number };
       const fromIdx = data.index;
-      if (fromIdx === toIdx) return;
+      if (fromIdx === insertAt || fromIdx + 1 === insertAt) return;
       setItems(prev => {
         const next = [...prev];
         const [removed] = next.splice(fromIdx, 1);
-        next.splice(toIdx, 0, removed);
+        const adjustedTo = fromIdx < insertAt ? insertAt - 1 : insertAt;
+        next.splice(adjustedTo, 0, removed);
         return next;
       });
     } catch { /* ignore */ }
@@ -801,7 +1110,18 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
               opacity: activeTab === "sections" ? 1 : 0.3,
             }}
           >
-            <div className="flex-1 overflow-y-auto pl-0 pt-0 pb-4 pr-0">
+            <div
+              ref={scrollContainerRef}
+              className="flex-1 overflow-y-auto pl-0 pt-0 pb-4 pr-0 hide-scrollbar rounded-xl"
+              onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("palette-component") || e.dataTransfer.types.includes("field-reorder")) {
+                  startAutoScroll(e.clientY);
+                }
+              }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) stopAutoScroll();
+              }}
+            >
               {/* Toolbar */}
               {config.showToolbar && (
                 <div className="flex items-center justify-between mb-2 px-3 py-2 rounded-xl bg-[var(--color-base-surface-primary)]">
@@ -818,16 +1138,31 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
               )}
 
               {/* Accordion items */}
-              <div className="space-y-2">
+              <div
+                className="space-y-0"
+                onDragOver={enableReorder ? handleAccordionContainerDragOver : undefined}
+                onDrop={enableReorder ? handleAccordionContainerDrop : undefined}
+                onDragLeave={enableReorder ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) { setDragOverIdx(null); } } : undefined}
+              >
                 {items.map((item, idx) => (
+                  <React.Fragment key={item.id}>
+                    {/* Drop indicator ABOVE this accordion */}
+                    <div className={`transition-all duration-200 ease-in-out overflow-hidden mx-0 ${
+                      dragOverIdx === idx
+                        ? "h-1.5 my-1"
+                        : "h-0 my-0"
+                    }`}>
+                      <div className={`h-full rounded-full transition-all duration-200 ${
+                        dragOverIdx === idx
+                          ? "bg-[var(--color-brand-primary)]"
+                          : "bg-transparent"
+                      }`} />
+                    </div>
                   <div
-                    key={item.id}
-                    className={`border border-[var(--color-base-stroke)] rounded-lg overflow-hidden bg-[var(--color-base-surface-primary)] transition-colors ${
-                      enableReorder && dragOverIdx === idx ? "ring-2 ring-[var(--color-brand-primary)]/50" : ""
-                    }`}
-                    onDragOver={enableReorder ? (e) => handleDragOver(e, idx) : undefined}
-                    onDragLeave={enableReorder ? () => setDragOverIdx(null) : undefined}
-                    onDrop={enableReorder ? (e) => handleDrop(e, idx) : undefined}
+                    data-accordion-idx={idx}
+                    className={`border border-[var(--color-base-stroke)] rounded-lg overflow-hidden bg-[var(--color-base-surface-primary)] transition-all duration-200 ease-in-out ${
+                      draggingAccordionIdx === idx ? "opacity-30 scale-[0.97]" : "opacity-100 scale-100"
+                    } ${idx > 0 && dragOverIdx !== idx ? "mt-2" : ""}`}
                   >
                     {/* Accordion header */}
                     <div className="flex items-center gap-2 px-3 h-12 bg-[var(--color-base-surface-secondary)] border-b border-[var(--color-base-stroke)]">
@@ -835,7 +1170,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                         <div
                           draggable
                           onDragStart={(e) => handleDragStart(e, idx)}
-                          onDragEnd={() => setDragOverIdx(null)}
+                          onDragEnd={() => { setDragOverIdx(null); setDraggingAccordionIdx(null); }}
                           className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)]"
                         >
                           <PreviewDragHandleIcon />
@@ -878,212 +1213,405 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                     {/* Accordion body — drop zone for palette + reorderable fields */}
                     {item.expanded && (
                       <div
-                        className="p-4 space-y-2 min-h-[60px] transition-colors"
+                        ref={dropContainerRef}
+                        className="px-1 py-1 min-h-[60px] flex flex-col"
                         onDragOver={(e) => {
-                          if (e.dataTransfer.types.includes("palette-component")) {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "copy";
-                            setShowDropZone(true);
+                          const isPalette = e.dataTransfer.types.includes("palette-component");
+                          const isReorder = e.dataTransfer.types.includes("field-reorder");
+                          if (!isPalette && !isReorder) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
+                          let idx = calcDropIndex(e.clientY);
+                          if (draggingFieldId) {
+                            const dragRowIdx = rows.findIndex(r => r.items.some(i => i.id === draggingFieldId));
+                            if (dragRowIdx !== -1) {
+                              const isSingleItemRow = rows[dragRowIdx].items.length === 1;
+                              if (idx === dragRowIdx || (isSingleItemRow && idx === dragRowIdx + 1)) {
+                                idx = -1;
+                              }
+                            }
                           }
+                          setDropInsertIdx(idx === -1 ? null : idx);
+                          startAutoScroll(e.clientY);
                         }}
+                        onDragEnd={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); stopAutoScroll(); }}
                         onDragLeave={(e) => {
                           if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                            setShowDropZone(false);
+                            setDropInsertIdx(null);
+                            setRowJoinTarget(null);
+                            stopAutoScroll();
                           }
                         }}
                         onDrop={(e) => {
-                          setShowDropZone(false);
-                          setFieldDragOverIdx(null);
+                          e.preventDefault();
+                          stopAutoScroll();
+                          const insertAt = dropInsertIdx;
+                          setDropInsertIdx(null);
+                          setRowJoinTarget(null);
+                          const targetGlobalIdx = insertAt !== null && insertAt < rows.length
+                            ? sectionItems.findIndex(i => i.id === rows[insertAt].items[0].id)
+                            : sectionItems.length;
+                          const reorderData = e.dataTransfer.getData("field-reorder");
+                          if (reorderData) {
+                            if (insertAt === null) return;
+                            const fromIdx = Number(reorderData);
+                            if (!isNaN(fromIdx)) reorderFields(fromIdx, targetGlobalIdx);
+                            return;
+                          }
                           const paletteData = e.dataTransfer.getData("palette-component");
                           if (paletteData) {
-                            e.preventDefault();
                             try {
                               const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
-                              addFieldFromPalette(type, label);
+                              addFieldFromPalette(type, label, targetGlobalIdx);
                             } catch { /* ignore */ }
                           }
                         }}
                       >
-                        {sectionItems.map((si, fieldIdx) => (
-                          <div
-                            key={si.id}
-                            className={`group relative flex items-start gap-2 rounded-lg p-2 -mx-2 transition-all ${
-                              fieldDragOverIdx === fieldIdx
-                                ? "ring-2 ring-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5"
-                                : "hover:bg-[var(--color-base-surface-secondary)]"
-                            }`}
-                            onDragOver={(e) => {
-                              if (e.dataTransfer.types.includes("field-reorder")) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                e.dataTransfer.dropEffect = "move";
-                                setFieldDragOverIdx(fieldIdx);
-                              } else if (e.dataTransfer.types.includes("palette-component")) {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                e.dataTransfer.dropEffect = "copy";
-                                setFieldDragOverIdx(fieldIdx);
-                              }
-                            }}
-                            onDragLeave={() => setFieldDragOverIdx(null)}
-                            onDrop={(e) => {
-                              e.stopPropagation();
-                              setFieldDragOverIdx(null);
-                              setShowDropZone(false);
-                              const reorderData = e.dataTransfer.getData("field-reorder");
-                              if (reorderData) {
-                                e.preventDefault();
-                                const fromIdx = Number(reorderData);
-                                if (!isNaN(fromIdx)) reorderFields(fromIdx, fieldIdx);
-                                return;
-                              }
-                              const paletteData = e.dataTransfer.getData("palette-component");
-                              if (paletteData) {
-                                e.preventDefault();
-                                try {
-                                  const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
-                                  addFieldFromPalette(type, label, fieldIdx);
-                                } catch { /* ignore */ }
-                              }
-                            }}
-                          >
-                            {/* Drag handle for reorder */}
+                        {rows.map((rowGroup, rowIdx) => {
+                          const isMulti = rowGroup.items.length > 1;
+                          return (
+                            <React.Fragment key={`${rowGroup.rowId}-${rowIdx}`}>
+                              {/* Drop indicator gap ABOVE this row */}
+                              <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
+                                dropInsertIdx === rowIdx
+                                  ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
+                                  : "h-0 border-0 opacity-0"
+                              }`} />
                             <div
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData("field-reorder", String(fieldIdx));
-                                e.dataTransfer.effectAllowed = "move";
-                              }}
-                              onDragEnd={() => setFieldDragOverIdx(null)}
-                              className="shrink-0 mt-2.5 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                              data-row-idx={rowIdx}
+                              className="transition-transform duration-200 ease-in-out"
                             >
-                              <PreviewDragHandleIcon />
-                            </div>
+                              <div className={`flex ${isMulti ? "items-stretch" : ""}`}>
+                                {rowGroup.items.map((si) => (
+                                  <div
+                                    key={si.id}
+                                    data-field-id={si.id}
+                                    className={`group relative flex items-start gap-1.5 rounded-lg px-2 py-2 transition-all duration-200 flex-1 min-w-0 ${
+                                      draggingFieldId === si.id
+                                        ? "opacity-30 scale-[0.97]"
+                                        : "hover:bg-[var(--color-base-surface-secondary)]"
+                                    }`}
+                                    onDragOver={(e) => {
+                                      const isPalette = e.dataTransfer.types.includes("palette-component");
+                                      const isReorder = e.dataTransfer.types.includes("field-reorder");
 
-                            {/* Field content */}
-                            <div className="flex-1 min-w-0">
-                              {si.kind === "action" ? (
-                                <div className="pt-1">
-                                  <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
-                                </div>
-                              ) : (
-                                <>
-                                  <div className="flex items-baseline gap-0.5 mb-1.5">
-                                    <input
-                                      type="text"
-                                      value={si.label}
-                                      onChange={(e) => updateField(si.id, { label: e.target.value })}
-                                      className="text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-0"
-                                      style={{ width: `${Math.max(si.label.length, 4)}ch` }}
-                                      placeholder="Field name"
-                                    />
-                                    {si.required && <span className="text-[var(--color-status-error)]">*</span>}
-                                  </div>
-                                  {si.type === "textarea" ? (
-                                    <textarea
-                                      disabled={si.readOnly}
-                                      placeholder={`Enter ${si.label}...`}
-                                      rows={3}
-                                      className="w-full px-3 py-2 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] disabled:opacity-50 resize-none"
-                                    />
-                                  ) : si.type === "select" || si.type === "multi-select" ? (
-                                    <Select
-                                      disabled={si.readOnly}
-                                      placeholder={`Select ${si.label}...`}
-                                      options={[{ label: "Option 1", value: "1" }, { label: "Option 2", value: "2" }, { label: "Option 3", value: "3" }]}
-                                      multiple={si.type === "multi-select"}
-                                    />
-                                  ) : si.type === "date-time" ? (
-                                    <Input disabled={si.readOnly} placeholder="Select Date and Time" rightIcon={
-                                      si.copyable ? <PreviewCopyIcon /> :
-                                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
-                                        <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
-                                        <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                      </svg>
-                                    } />
-                                  ) : si.type === "number" ? (
-                                    <Input disabled={si.readOnly} type="number" placeholder="0" rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
-                                  ) : (
-                                    <Input disabled={si.readOnly} placeholder={`Enter ${si.label}...`} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
-                                  )}
-                                </>
-                              )}
-                            </div>
+                                      if (isReorder && isMulti && draggingFieldId && draggingFieldId !== si.id) {
+                                        const draggedItem = sectionItems.find(i => i.id === draggingFieldId);
+                                        if (draggedItem && draggedItem.rowId === si.rowId) {
+                                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                          const x = e.clientX - rect.left;
+                                          const side: "left" | "right" = x < rect.width / 2 ? "left" : "right";
+                                          const rowItems = rowGroup.items;
+                                          const dragIdx = rowItems.findIndex(i => i.id === draggingFieldId);
+                                          const targetIdx = rowItems.findIndex(i => i.id === si.id);
+                                          if ((side === "right" && targetIdx === dragIdx - 1) ||
+                                              (side === "left" && targetIdx === dragIdx + 1)) {
+                                            setHReorderTarget(null);
+                                            return;
+                                          }
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          e.dataTransfer.dropEffect = "move";
+                                          setHReorderTarget({ fieldId: si.id, side });
+                                          setDropInsertIdx(null);
+                                          setRowJoinTarget(null);
+                                          return;
+                                        }
+                                      }
 
-                            {/* More menu */}
-                            {si.kind === "field" && (
-                              <div className="relative shrink-0 mt-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setOpenMenuId(openMenuId === si.id ? null : si.id)}
-                                  className="p-1 rounded-md text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-all"
-                                >
-                                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                    <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
-                                    <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
-                                    <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
-                                  </svg>
-                                </button>
-                                {openMenuId === si.id && (
-                                  <>
-                                    <div className="fixed inset-0 z-20" onClick={() => setOpenMenuId(null)} />
-                                    <div className="absolute right-0 top-8 z-30 w-56 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1">
-                                      <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
-                                        <Checkbox
-                                          checked={si.required || false}
-                                          onCheckedChange={() => { updateField(si.id, { required: !si.required }); }}
-                                        />
-                                        <span className="text-sm text-[var(--color-base-primary)]">Required</span>
-                                      </label>
-                                      <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
-                                        <Checkbox
-                                          checked={si.readOnly === true}
-                                          onCheckedChange={() => { updateField(si.id, { readOnly: !si.readOnly }); }}
-                                        />
-                                        <span className="text-sm text-[var(--color-base-primary)]">Read-only</span>
-                                      </label>
-                                      <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
-                                        <Checkbox
-                                          checked={si.copyable || false}
-                                          onCheckedChange={() => { updateField(si.id, { copyable: !si.copyable }); }}
-                                        />
-                                        <span className="text-sm text-[var(--color-base-primary)]">Copy to clipboard</span>
-                                      </label>
-                                      <div className="h-px bg-[var(--color-base-stroke)] my-1" />
-                                      <button
-                                        type="button"
-                                        onClick={() => { removeField(si.id); setOpenMenuId(null); }}
-                                        className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-status-error)]/10 transition-colors text-left"
-                                      >
-                                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                                          <path d="M2.667 4.667H13.333M6.667 7.333V11.333M9.333 7.333V11.333M3.333 4.667L4 12.667C4 13.403 4.597 14 5.333 14H10.667C11.403 14 12 13.403 12 12.667L12.667 4.667M6 4.667V2.667C6 2.299 6.299 2 6.667 2H9.333C9.701 2 10 2.299 10 2.667V4.667" stroke="var(--color-status-error)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                                        </svg>
-                                        <span className="text-sm text-[var(--color-status-error)]">Delete</span>
-                                      </button>
+                                      if (isPalette || isReorder) {
+                                        if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
+                                        if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
+                                        if (isReorder && draggingFieldId) {
+                                          const draggedItem = sectionItems.find(i => i.id === draggingFieldId);
+                                          if (!draggedItem || draggedItem.kind === "action") return;
+                                          if (draggedItem.kind === "field" && draggedItem.type === "textarea") return;
+                                          if (draggedItem.rowId === si.rowId) return;
+                                        }
+                                        if (rowGroup.items.length >= 3) return;
+                                        if (rowGroup.items.some(i => i.kind === "action")) return;
+                                        if (rowGroup.items.some(i => i.kind === "field" && i.type === "textarea")) return;
+                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                        const x = e.clientX - rect.left;
+                                        if (x > rect.width * 0.7) {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
+                                          setRowJoinTarget(si.id);
+                                          setHReorderTarget(null);
+                                          setDropInsertIdx(null);
+                                        }
+                                        return;
+                                      }
+                                    }}
+                                    onDragLeave={(e) => {
+                                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                        if (hReorderTarget?.fieldId === si.id) setHReorderTarget(null);
+                                      }
+                                    }}
+                                    onDrop={(e) => {
+                                      if (draggingFieldId && draggingFieldId !== si.id && isMulti) {
+                                        const draggedItem = sectionItems.find(i => i.id === draggingFieldId);
+                                        if (draggedItem && draggedItem.rowId === si.rowId) {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          const side = hReorderTarget?.fieldId === si.id ? hReorderTarget.side : "right";
+                                          reorderWithinRow(draggingFieldId, si.id, side);
+                                          setHReorderTarget(null);
+                                          setDraggingFieldId(null);
+                                          return;
+                                        }
+                                      }
+                                      if (rowJoinTarget !== si.id) return;
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setRowJoinTarget(null);
+                                      setHReorderTarget(null);
+                                      setDropInsertIdx(null);
+                                      const reorderData = e.dataTransfer.getData("field-reorder");
+                                      if (reorderData && draggingFieldId) {
+                                        moveFieldToRow(draggingFieldId, si.rowId);
+                                        setDraggingFieldId(null);
+                                        return;
+                                      }
+                                      const paletteData = e.dataTransfer.getData("palette-component");
+                                      if (paletteData) {
+                                        try {
+                                          const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+                                          addFieldFromPalette(type, label, undefined, si.rowId);
+                                        } catch { /* ignore */ }
+                                      }
+                                    }}
+                                  >
+                                    {/* Drag handle */}
+                                    <div
+                                      draggable
+                                      onDragStart={(e) => {
+                                        const idx = sectionItems.findIndex(i => i.id === si.id);
+                                        e.dataTransfer.setData("field-reorder", String(idx));
+                                        e.dataTransfer.effectAllowed = "move";
+                                        setDraggingFieldId(si.id);
+                                        const handleEl = e.currentTarget as HTMLElement;
+                                        const fieldEl = handleEl.closest("[data-field-id]") as HTMLElement | null;
+                                        if (fieldEl) {
+                                          const handleRect = handleEl.getBoundingClientRect();
+                                          const fieldRect = fieldEl.getBoundingClientRect();
+                                          const offsetX = (handleRect.left + handleRect.width / 2) - fieldRect.left;
+                                          const offsetY = (handleRect.top + handleRect.height / 2) - fieldRect.top;
+                                          const clone = fieldEl.cloneNode(true) as HTMLElement;
+                                          clone.style.width = `${fieldEl.offsetWidth}px`;
+                                          clone.style.position = "absolute";
+                                          clone.style.top = "-9999px";
+                                          clone.style.left = "-9999px";
+                                          clone.style.opacity = "0.85";
+                                          clone.style.borderRadius = "8px";
+                                          clone.style.background = "var(--color-base-surface-primary)";
+                                          clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+                                          document.body.appendChild(clone);
+                                          e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                                          requestAnimationFrame(() => clone.remove());
+                                        }
+                                      }}
+                                      onDragEnd={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); setDraggingFieldId(null); }}
+                                      className="shrink-0 mt-2.5 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                      <PreviewDragHandleIcon />
                                     </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        ))}
 
-                        {/* Drop placeholder when dragging from palette over empty area */}
-                        {(showDropZone || (sectionItems.length === 0)) && (
-                          <div className={`flex items-center justify-center rounded-lg border-2 border-dashed py-6 transition-colors ${
-                            showDropZone
-                              ? "border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/10"
-                              : "border-[var(--color-base-stroke)]"
-                          }`}>
-                            <p className={`text-sm ${showDropZone ? "text-[var(--color-brand-primary)] font-medium" : "text-[var(--color-base-tertiary)]"}`}>
-                              {showDropZone ? "Drop here" : "Drag components from the panel"}
-                            </p>
+                                    {/* Field content */}
+                                    <div className="flex-1 min-w-0">
+                                      {si.kind === "action" ? (
+                                        <div className="pt-1 flex items-center gap-2">
+                                          <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeField(si.id)}
+                                            className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+                                            title="Delete"
+                                          >
+                                            <PreviewDeleteIcon />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className="relative flex items-center mb-1.5">
+                                            <div className="flex items-center gap-2 min-w-0 overflow-hidden">
+                                              <div className="flex items-center shrink min-w-0">
+                                                <input
+                                                  type="text"
+                                                  value={si.label}
+                                                  onChange={(e) => updateField(si.id, { label: e.target.value })}
+                                                  className="text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-[3ch]"
+                                                  size={Math.max(si.label.length || 1, 1)}
+                                                  placeholder="Field name"
+                                                />
+                                                <span className={`text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none ${si.required ? "visible" : "invisible"}`}>*</span>
+                                              </div>
+                                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <path d="M8.5 1.5L10.5 3.5M1 11L1.5 8.5L9.5 0.5L11.5 2.5L3.5 10.5L1 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                                              </svg>
+                                            </div>
+                                            <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  if (openMenuId === si.id) { setOpenMenuId(null); return; }
+                                                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                                  setMenuPos({ top: rect.bottom + 4, left: rect.right - 224 });
+                                                  setOpenMenuId(si.id);
+                                                }}
+                                                className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-all"
+                                              >
+                                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="rotate-90">
+                                                  <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
+                                                  <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+                                                  <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
+                                                </svg>
+                                              </button>
+                                            </div>
+                                          </div>
+                                          {si.type === "textarea" ? (
+                                            <textarea
+                                              disabled={si.readOnly}
+                                              placeholder={`Enter ${si.label}...`}
+                                              rows={isMulti ? 1 : 3}
+                                              className="w-full px-3 py-2 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] disabled:opacity-50 resize-none"
+                                            />
+                                          ) : si.type === "select" || si.type === "multi-select" ? (
+                                            <Select
+                                              readOnly={!si.readOnly}
+                                              disabled={si.readOnly}
+                                              placeholder={`Select ${si.label}...`}
+                                              options={[{ label: "Option 1", value: "1" }, { label: "Option 2", value: "2" }, { label: "Option 3", value: "3" }]}
+                                              multiple={si.type === "multi-select"}
+                                            />
+                                          ) : si.type === "date-time" ? (
+                                            <Input disabled={si.readOnly} placeholder="Select Date and Time" rightIcon={
+                                              si.copyable ? <PreviewCopyIcon /> :
+                                              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
+                                                <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+                                                <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                              </svg>
+                                            } />
+                                          ) : si.type === "number" ? (
+                                            <Input disabled={si.readOnly} type="number" placeholder="0" rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                                          ) : (
+                                            <Input disabled={si.readOnly} placeholder={`Enter ${si.label}...`} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+
+                                    {/* More menu dropdown (portal) */}
+                                    {si.kind === "field" && openMenuId === si.id && createPortal(
+                                      <>
+                                        <div className="fixed inset-0 z-[10000]" onMouseDown={() => setOpenMenuId(null)} />
+                                        <div
+                                          className="fixed z-[10001] w-56 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1"
+                                          style={{ top: menuPos.top, left: menuPos.left }}
+                                        >
+                                          <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                                            <Checkbox
+                                              checked={si.required || false}
+                                              onCheckedChange={() => { updateField(si.id, { required: !si.required }); }}
+                                            />
+                                            <span className="text-sm text-[var(--color-base-primary)]">Required</span>
+                                          </label>
+                                          <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                                            <Checkbox
+                                              checked={si.readOnly === true}
+                                              onCheckedChange={() => { updateField(si.id, { readOnly: !si.readOnly }); }}
+                                            />
+                                            <span className="text-sm text-[var(--color-base-primary)]">Read-only</span>
+                                          </label>
+                                          <label className={`flex items-center gap-2.5 px-3 py-2 transition-colors ${si.type === "input" ? "hover:bg-[var(--color-base-surface-secondary)] cursor-pointer" : "opacity-40 cursor-not-allowed"}`}>
+                                            <Checkbox
+                                              checked={si.copyable || false}
+                                              disabled={si.type !== "input"}
+                                              onCheckedChange={() => { if (si.type === "input") updateField(si.id, { copyable: !si.copyable }); }}
+                                            />
+                                            <span className="text-sm text-[var(--color-base-primary)]">Copy to clipboard</span>
+                                          </label>
+                                          {isMulti && (
+                                            <>
+                                              <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                                              <button
+                                                type="button"
+                                                onClick={() => { splitFromRow(si.id); setOpenMenuId(null); }}
+                                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] transition-colors text-left"
+                                              >
+                                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                                  <path d="M8 2V14M3 5L5 2L7 5M9 11L11 14L13 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                                </svg>
+                                                <span className="text-sm text-[var(--color-base-primary)]">Move to own row</span>
+                                              </button>
+                                            </>
+                                          )}
+                                          <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                                          <button
+                                            type="button"
+                                            onClick={() => { removeField(si.id); setOpenMenuId(null); }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-status-error)]/10 transition-colors text-left"
+                                          >
+                                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                              <path d="M2.667 4.667H13.333M6.667 7.333V11.333M9.333 7.333V11.333M3.333 4.667L4 12.667C4 13.403 4.597 14 5.333 14H10.667C11.403 14 12 13.403 12 12.667L12.667 4.667M6 4.667V2.667C6 2.299 6.299 2 6.667 2H9.333C9.701 2 10 2.299 10 2.667V4.667" stroke="var(--color-status-error)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                            </svg>
+                                            <span className="text-sm text-[var(--color-status-error)]">Delete</span>
+                                          </button>
+                                        </div>
+                                      </>,
+                                      document.body
+                                    )}
+
+                                    {/* Right-edge join indicator (palette) */}
+                                    {rowJoinTarget === si.id && (
+                                      <div className="absolute right-0 top-1 bottom-1 w-1 rounded-full bg-[var(--color-brand-primary)]" />
+                                    )}
+                                    {/* Horizontal reorder indicators */}
+                                    {hReorderTarget?.fieldId === si.id && hReorderTarget.side === "left" && (
+                                      <div className="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-[var(--color-brand-primary)]" />
+                                    )}
+                                    {hReorderTarget?.fieldId === si.id && hReorderTarget.side === "right" && (
+                                      <div className="absolute right-0 top-1 bottom-1 w-1 rounded-full bg-[var(--color-brand-primary)]" />
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            {/* Drop indicator gap AFTER last row */}
+                            {rowIdx === rows.length - 1 && (
+                              <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
+                                dropInsertIdx === rows.length
+                                  ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
+                                  : "h-0 border-0 opacity-0"
+                              }`} />
+                            )}
+                            </React.Fragment>
+                          );
+                        })}
+
+                        {sectionItems.length === 0 && (
+                          <div className="flex items-center justify-center rounded-lg border-2 border-dashed border-[var(--color-base-stroke)] py-6 pointer-events-none">
+                            <p className="text-sm text-[var(--color-base-tertiary)]">Drag components from the panel</p>
                           </div>
                         )}
                       </div>
                     )}
                   </div>
+                  </React.Fragment>
                 ))}
+                {/* Drop indicator AFTER last accordion */}
+                <div className={`transition-all duration-200 ease-in-out overflow-hidden mx-0 ${
+                  dragOverIdx === items.length
+                    ? "h-1.5 mt-1"
+                    : "h-0 mt-0"
+                }`}>
+                  <div className={`h-full rounded-full transition-all duration-200 ${
+                    dragOverIdx === items.length
+                      ? "bg-[var(--color-brand-primary)]"
+                      : "bg-transparent"
+                  }`} />
+                </div>
               </div>
             </div>
           </div>
@@ -1109,7 +1637,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
             )}
 
             {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 hide-scrollbar">
               {migrateDetailsItems(config.propertiesPanel).map((si) => {
                 if (si.kind === "section") {
                   return <p key={si.id} className="text-sm font-medium text-[var(--color-base-primary)] pt-2">{si.title}</p>;
@@ -1321,23 +1849,45 @@ function PageLayoutWireframe({ activeZone }: { activeZone: "zoneB" | "properties
 
 // Unified section item: field or action
 type SectionItem =
-  | { id: string; kind: "field"; label: string; type: string; required?: boolean; autoGenerated?: boolean; placeholder?: string; copyable?: boolean; readOnly?: boolean }
-  | { id: string; kind: "action"; label: string };
+  | { id: string; kind: "field"; label: string; type: string; required?: boolean; autoGenerated?: boolean; placeholder?: string; copyable?: boolean; readOnly?: boolean; rowId: string }
+  | { id: string; kind: "action"; label: string; rowId: string };
+
+type RowGroup = { rowId: string; items: SectionItem[] };
+
+function groupByRows(items: SectionItem[]): RowGroup[] {
+  const map = new Map<string, RowGroup>();
+  const ordered: RowGroup[] = [];
+  for (const item of items) {
+    const existing = map.get(item.rowId);
+    if (existing) {
+      existing.items.push(item);
+    } else {
+      const group: RowGroup = { rowId: item.rowId, items: [item] };
+      map.set(item.rowId, group);
+      ordered.push(group);
+    }
+  }
+  return ordered;
+}
 
 function migrateSectionItems(cfg: Record<string, unknown> | undefined): SectionItem[] {
   if (!cfg) return [];
-  if (Array.isArray(cfg.items)) return cfg.items as SectionItem[];
+  if (Array.isArray(cfg.items)) {
+    return (cfg.items as SectionItem[]).map(item =>
+      item.rowId ? item : { ...item, rowId: item.id }
+    );
+  }
   const fields = (cfg.fields ?? []) as Array<Record<string, unknown>>;
   const actions = (cfg.customActions ?? []) as Array<Record<string, unknown>>;
   return [
-    ...fields.map(f => ({ ...f, kind: "field" as const })),
-    ...actions.map(a => ({ id: a.id as string, kind: "action" as const, label: a.label as string })),
+    ...fields.map(f => ({ ...f, kind: "field" as const, rowId: (f.rowId as string) || (f.id as string) })),
+    ...actions.map(a => ({ id: a.id as string, kind: "action" as const, label: a.label as string, rowId: a.id as string })),
   ] as SectionItem[];
 }
 
 // Palette items for drag-and-drop onto Preview
 const PALETTE_ITEMS = [
-  { type: "input", label: "Input", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "input", label: "Text Field", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
   { type: "select", label: "Select", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M11 7.5L13 9.5L11 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
   { type: "date-time", label: "Date Picker", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2 7.5H16M5.5 1V4M12.5 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
   { type: "number", label: "Number", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 7.5H11M11 7.5V11.5M11 7.5L7 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
@@ -1361,7 +1911,7 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
       "simple-list": "Simple List",
     };
     const newSection = {
-      id: `zone-b-${Date.now()}`,
+      id: uid("zone-b"),
       type: type as CreatePageConfig["sections"][0]["type"],
       title: labels[type] || type,
       config: getDefaultSectionConfig(type),
@@ -1542,7 +2092,22 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
                   draggable
                   onDragStart={(e) => {
                     e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                    if (pi.type === "action") e.dataTransfer.setData("palette-is-action", "1");
+                    if (pi.type === "textarea") e.dataTransfer.setData("palette-is-textarea", "1");
                     e.dataTransfer.effectAllowed = "copy";
+                    const el = e.currentTarget as HTMLElement;
+                    const elRect = el.getBoundingClientRect();
+                    const cursorX = e.clientX - elRect.left;
+                    const cursorY = e.clientY - elRect.top;
+                    const clone = el.cloneNode(true) as HTMLElement;
+                    clone.style.width = `${el.offsetWidth}px`;
+                    clone.style.position = "absolute";
+                    clone.style.top = "-9999px";
+                    clone.style.left = "-9999px";
+                    clone.style.opacity = "0.9";
+                    document.body.appendChild(clone);
+                    e.dataTransfer.setDragImage(clone, cursorX, cursorY);
+                    requestAnimationFrame(() => clone.remove());
                   }}
                   className="flex items-center gap-2.5 px-3 py-3 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] cursor-grab active:cursor-grabbing hover:border-[var(--color-base-tertiary)] hover:shadow-sm transition-all select-none"
                 >
@@ -1594,7 +2159,8 @@ function AccordionItemFieldsEditor({
   };
 
   const addField = () => {
-    const newField: SectionItem = { id: `field-${Date.now()}`, kind: "field", label: "New Field", type: "input" };
+    const id = uid("field");
+    const newField: SectionItem = { id, kind: "field", label: "New Field", type: "input", rowId: id };
     setAllItems([...allItems, newField]);
   };
 
@@ -1761,7 +2327,7 @@ function SectionsEditor({ config, updateIntent, intent, hoveredFieldId, onHoverF
   const selectPattern = (type: string) => {
     const label = sectionTypes.find(t => t.value === type)?.label || type;
     const newSection = {
-      id: `zone-b-${Date.now()}`,
+      id: uid("zone-b"),
       type: type as CreatePageConfig["sections"][0]["type"],
       title: label,
       config: getDefaultSectionConfig(type),
@@ -1940,15 +2506,15 @@ function PropertiesEditor({ config, updateIntent, intent, hoveredFieldId, onHove
   };
 
   const addField = () => {
-    setItems([...items, { id: `field-${Date.now()}`, kind: "field", label: "New Field", type: "input" }]);
+    setItems([...items, { id: uid("field"), kind: "field", label: "New Field", type: "input" }]);
   };
 
   const addAction = () => {
-    setItems([...items, { id: `action-${Date.now()}`, kind: "action", label: "New Action" }]);
+    setItems([...items, { id: uid("action"), kind: "action", label: "New Action" }]);
   };
 
   const addSection = () => {
-    setItems([...items, { id: `section-${Date.now()}`, kind: "section", title: "New Section" }]);
+    setItems([...items, { id: uid("section"), kind: "section", title: "New Section" }]);
   };
 
   const removeItem = (itemId: string) => {

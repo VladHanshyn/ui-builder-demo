@@ -68,6 +68,8 @@ export interface SelectProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
   applyText?: string;
   /** Whether the select is disabled */
   disabled?: boolean;
+  /** Read-only mode — looks normal but doesn't open dropdown */
+  readOnly?: boolean;
   /** Full width */
   fullWidth?: boolean;
   /** Maximum height of the dropdown */
@@ -167,16 +169,20 @@ export const SelectMenu = forwardRef<HTMLDivElement, SelectMenuProps>(
         return;
       }
       
-      // Calculate position immediately
+      // Calculate position after layout is stable
       calculatePosition();
-      // Show menu after position is set
       setIsPositioned(true);
+      // Recalculate to catch any layout shifts
+      const rafId = requestAnimationFrame(() => {
+        calculatePosition();
+      });
       
       // Recalculate on resize and scroll to stay attached to trigger
       window.addEventListener("resize", calculatePosition);
       window.addEventListener("scroll", calculatePosition, true);
 
       return () => {
+        cancelAnimationFrame(rafId);
         window.removeEventListener("resize", calculatePosition);
         window.removeEventListener("scroll", calculatePosition, true);
       };
@@ -283,7 +289,7 @@ export const SelectOptionItem = ({
           ? "opacity-50 cursor-not-allowed"
           : "cursor-pointer hover:bg-[var(--color-base-surface-secondary)]"
         }
-        ${isSelected ? "bg-[var(--color-brand-secondary)]" : ""}
+        ${isSelected ? "" : ""}
       `.replace(/\s+/g, " ").trim()}
     >
       {/* Checkbox for multiselect */}
@@ -350,6 +356,7 @@ export const Select = forwardRef<HTMLDivElement, SelectProps>(
       clearText = "Clear",
       applyText = "Apply",
       disabled = false,
+      readOnly = false,
       fullWidth = false,
       maxHeight = 300,
       renderOption,
@@ -416,7 +423,7 @@ export const Select = forwardRef<HTMLDivElement, SelectProps>(
 
     // Handle open
     const handleOpen = () => {
-      if (disabled) return;
+      if (disabled || readOnly) return;
       setIsOpen(true);
       setSearchQuery("");
       if (showActions && multiple) {
@@ -426,7 +433,7 @@ export const Select = forwardRef<HTMLDivElement, SelectProps>(
 
     // Toggle open/close on trigger click (close when clicking trigger again)
     const handleTriggerClick = () => {
-      if (disabled) return;
+      if (disabled || readOnly) return;
       if (isOpen) {
         handleClose();
       } else {

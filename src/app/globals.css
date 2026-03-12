@@ -43,3 +43,11 @@ body {
   color: var(--foreground);
   font-family: var(--font-roboto), 'Roboto', Arial, Helvetica, sans-serif;
 }
+
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}

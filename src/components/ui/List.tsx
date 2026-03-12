@@ -425,7 +425,7 @@ export const ListItem = forwardRef<HTMLDivElement, ListItemProps>(
           ${sizeConfig[size].height}
           ${sizeConfig[size].padding}
           ${showBorder ? "border-b border-[var(--color-base-surface-secondary)]" : ""}
-          ${selected ? "bg-[var(--color-brand-secondary)]" : ""}
+          ${selected ? "" : ""}
           ${disabled ? "opacity-50 cursor-not-allowed" : ""}
           ${isClickable && !disabled && hoverable ? "cursor-pointer hover:bg-[var(--color-base-surface-secondary)]" : ""}
           transition-colors duration-150
