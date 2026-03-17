@@ -134,6 +134,214 @@ function extractFieldsFromConfig(config: CreatePageConfig): FieldRef[] {
 }
 
 // ============================================
+// WIZARD HEADER — Category + Feature Name + Close
+// ============================================
+
+function WizardHeader({ intent, updateIntent, onClose, firstFocusableRef }: {
+  intent: WizardIntent;
+  updateIntent: (updates: Partial<WizardIntent>) => void;
+  onClose: () => void;
+  firstFocusableRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const [navState] = React.useState(() => getNavigationState());
+  const sections = getSectionsForPickerFn(navState);
+  const customSections = intent.navigation.customSections ?? [];
+  const allCategories = [
+    ...sections.map(s => ({ id: s.id, label: s.label })),
+    ...customSections.map(s => ({ id: s.id, label: s.label })),
+  ];
+  const customSection = customSections.find(s => s.id === intent.navigation.parentSection);
+  const parentLabel = intent.navigation.isNewSection
+    ? intent.navigation.newSectionName || "New Category"
+    : customSection?.label ?? sections.find(s => s.id === intent.navigation.parentSection)?.label;
+
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [newCatMode, setNewCatMode] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const categoryRef = useRef<HTMLDivElement>(null);
+  const newCatInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!categoryOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (categoryRef.current && !categoryRef.current.contains(e.target as Node)) { setCategoryOpen(false); setNewCatMode(false); setNewCatName(""); }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [categoryOpen]);
+
+  useEffect(() => {
+    if (newCatMode && newCatInputRef.current) newCatInputRef.current.focus();
+  }, [newCatMode]);
+
+  const handleSelectCategory = (id: string) => {
+    setCategoryOpen(false);
+    setNewCatMode(false);
+    setNewCatName("");
+    updateIntent({
+      navigation: { ...intent.navigation, parentSection: id, isNewSection: false, newSectionName: "", newSectionIcon: "features" },
+    });
+  };
+
+  const confirmNewCategory = () => {
+    const name = newCatName.trim();
+    if (!name) return;
+    const id = uid("custom");
+    updateIntent({
+      navigation: {
+        ...intent.navigation,
+        parentSection: id,
+        isNewSection: false,
+        newSectionName: "",
+        newSectionIcon: "features",
+        customSections: [...customSections, { id, label: name, icon: "features" }],
+      },
+    });
+    setNewCatMode(false);
+    setNewCatName("");
+    setCategoryOpen(false);
+  };
+
+  const removeCustomCategory = (sectionId: string) => {
+    const next = customSections.filter(s => s.id !== sectionId);
+    updateIntent({
+      navigation: {
+        ...intent.navigation,
+        parentSection: intent.navigation.parentSection === sectionId ? null : intent.navigation.parentSection,
+        customSections: next,
+      },
+    });
+  };
+
+  return (
+    <div className="shrink-0 mx-2 mt-2 mb-2 flex items-center h-14 px-4 gap-4 bg-[var(--color-base-surface-primary)] rounded-[24px]">
+      {/* Breadcrumbs — centered */}
+      <div className="flex-1 flex items-center justify-center gap-1">
+        {/* Category select */}
+        <div ref={categoryRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setCategoryOpen(!categoryOpen)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-headline-2 text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+          >
+            {parentLabel || "Select Category"}
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
+              <path d="M4 6L8 10L12 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          {categoryOpen && (
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-[220px] bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)] rounded-xl shadow-lg py-1 z-50">
+              {sections.map(cat => (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => handleSelectCategory(cat.id)}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-[var(--color-base-surface-secondary)] transition-colors ${
+                    intent.navigation.parentSection === cat.id ? "text-[var(--color-brand-primary)] font-medium" : "text-[var(--color-base-primary)]"
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+              {customSections.map(cs => (
+                <div key={cs.id} className="group/catitem flex items-center hover:bg-[var(--color-base-surface-secondary)] transition-colors">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCategory(cs.id)}
+                    className={`flex-1 text-left px-4 py-2 text-sm ${
+                      intent.navigation.parentSection === cs.id ? "text-[var(--color-brand-primary)] font-medium" : "text-[var(--color-base-primary)]"
+                    }`}
+                  >
+                    {cs.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); removeCustomCategory(cs.id); }}
+                    className="shrink-0 p-1.5 mr-2 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] opacity-0 group-hover/catitem:opacity-100 transition-all"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M2.667 4.667H13.333M6.667 7.333V11.333M9.333 7.333V11.333M3.333 4.667L4 12.667C4 13.403 4.597 14 5.333 14H10.667C11.403 14 12 13.403 12 12.667L12.667 4.667M6 4.667V2.667C6 2.299 6.299 2 6.667 2H9.333C9.701 2 10 2.299 10 2.667V4.667" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              {allCategories.length === 0 && !newCatMode && (
+                <p className="px-4 py-2 text-sm text-[var(--color-base-tertiary)]">No categories</p>
+              )}
+              {newCatMode && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5">
+                  <input
+                    ref={newCatInputRef}
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") confirmNewCategory(); if (e.key === "Escape") { setNewCatMode(false); setNewCatName(""); } }}
+                    placeholder="Category name"
+                    className="flex-1 min-w-0 text-sm px-2 py-1.5 rounded-lg border border-[var(--color-base-stroke)] bg-transparent outline-none focus:border-[var(--color-brand-primary)] transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={confirmNewCategory}
+                    disabled={!newCatName.trim()}
+                    className="shrink-0 p-1.5 rounded-lg bg-[var(--color-brand-primary)] text-white disabled:opacity-40 transition-opacity"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M3 8L6.5 11.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+              )}
+              {customSections.length === 0 && !newCatMode && (
+                <>
+                  <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                  <button
+                    type="button"
+                    onClick={() => setNewCatMode(true)}
+                    className="w-full text-left px-4 py-2 text-sm font-medium text-[var(--color-brand-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors flex items-center gap-1.5"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    New category
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <span className="text-headline-2 text-[var(--color-base-tertiary)]">/</span>
+
+        {/* Feature Name */}
+        <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-[var(--color-base-surface-secondary)] transition-colors cursor-text ${
+          !intent.title.trim() ? "border border-[var(--color-base-primary)]" : ""
+        }`}>
+          <input
+            value={intent.title}
+            onChange={(e) => updateIntent({ title: e.target.value })}
+            placeholder="Feature Name"
+            style={{ width: `${Math.max((intent.title || "Feature Name").length, 1) + 1}ch` }}
+            className="bg-transparent text-headline-2 font-medium text-[var(--color-base-primary)] outline-none placeholder:text-[var(--color-base-tertiary)]"
+          />
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[var(--color-base-tertiary)]">
+            <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
+          </svg>
+        </label>
+      </div>
+
+      {/* Close button */}
+      <button
+        ref={firstFocusableRef}
+        onClick={onClose}
+        className="shrink-0 p-2 rounded-lg text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+        aria-label="Close"
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+// ============================================
 // WIZARD MODAL COMPONENT
 // ============================================
 
@@ -226,32 +434,73 @@ export function WizardModal({
 
   const canGoNext = useCallback(() => {
     switch (currentStep) {
-      case 0: {
-        const hasTitle = intent.title.trim().length > 0;
-        const hasPlacement = intent.navigation.isNewSection
-          ? intent.navigation.newSectionName.trim().length > 0
-          : intent.navigation.parentSection !== null;
-        const navState = getNavigationState();
-        const allPages = navState.sections.flatMap(s => [
-          s.label.toLowerCase(),
-          ...s.children.map(c => c.label.toLowerCase()),
-        ]);
-        const isDuplicate = allPages.includes(intent.title.trim().toLowerCase());
-        return hasTitle && hasPlacement && !isDuplicate;
-      }
-      case 1:
+      case 0:
         return intent.createPageConfig.sections.length === 1;
-      case 2:
+      case 1:
         return intent.selectedFields.tableColumns.length > 0;
       default:
         return true;
     }
-  }, [currentStep, intent.title, intent.navigation, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
+  }, [currentStep, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
+
+  const isStepComplete = useCallback((step: number) => {
+    switch (step) {
+      case 0: return intent.createPageConfig.sections.length === 1;
+      case 1: return intent.selectedFields.tableColumns.length > 0;
+      default: return true;
+    }
+  }, [intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
+
+  const canNavigateToStep = useCallback((target: number) => {
+    if (target === currentStep) return false;
+    if (target < currentStep) return true;
+    for (let s = 0; s < target; s++) {
+      if (!isStepComplete(s)) return false;
+    }
+    return true;
+  }, [currentStep, isStepComplete]);
+
+  const autoPopulateTableColumns = useCallback(() => {
+    if ((intent.selectedFields?.tableColumns || []).length > 0) return;
+    const allFields = extractFieldsFromConfig(intent.createPageConfig);
+    const detailsItems = migrateDetailsItems(intent.createPageConfig.propertiesPanel);
+    const detailsFields = detailsItems.filter(di => di.kind === "field") as Array<{ id: string; kind: "field"; label: string; type: string }>;
+    const defaults: FieldRef[] = [];
+    const seen = new Set<string>();
+    const addDefault = (id: string) => {
+      if (seen.has(id)) return;
+      const ref = allFields.find(f => f.id === id);
+      if (ref) { seen.add(id); defaults.push({ ...ref }); }
+    };
+    const titleItem = detailsFields.find(f => f.label.toLowerCase().includes("title"));
+    if (titleItem) addDefault(titleItem.id);
+    for (const df of detailsFields) {
+      if (/\bid\b/i.test(df.label)) addDefault(df.id);
+    }
+    addDefault("created-at");
+    if (defaults.length > 0) {
+      updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: defaults } });
+    }
+  }, [intent, updateIntent]);
+
+  const handleGoToStep = useCallback((target: number) => {
+    if (!canNavigateToStep(target)) return;
+    if (!intent.featureId && intent.title.trim()) {
+      updateIntent({ featureId: titleToFeatureId(intent.title) });
+    }
+    if (currentStep === 0 && target > 0) {
+      autoPopulateTableColumns();
+    }
+    setCurrentStep(target);
+  }, [canNavigateToStep, currentStep, intent.featureId, intent.title, updateIntent, autoPopulateTableColumns]);
 
   const handleNext = () => {
     if (currentStep < WIZARD_STEPS.length - 1 && canGoNext()) {
-      if (currentStep === 0 && !intent.featureId) {
+      if (!intent.featureId && intent.title.trim()) {
         updateIntent({ featureId: titleToFeatureId(intent.title) });
+      }
+      if (currentStep === 0) {
+        autoPopulateTableColumns();
       }
       setCurrentStep((prev) => prev + 1);
     }
@@ -264,7 +513,19 @@ export function WizardModal({
   };
 
   const handleSubmit = () => {
-    onSubmit(intent);
+    const finalIntent = { ...intent };
+    if (!finalIntent.featureId && finalIntent.title.trim()) {
+      finalIntent.featureId = titleToFeatureId(finalIntent.title);
+    }
+    console.log("[WizardModal] Submitting intent:", {
+      title: finalIntent.title,
+      featureId: finalIntent.featureId,
+      tableColumns: finalIntent.selectedFields?.tableColumns?.length,
+      actions: Object.entries(finalIntent.rowActions || {}).filter(([, v]) => v).map(([k]) => k),
+      sections: finalIntent.createPageConfig?.sections?.length,
+      propertiesSections: finalIntent.createPageConfig?.propertiesPanel?.sections?.length,
+    });
+    onSubmit(finalIntent);
     onClose();
   };
 
@@ -278,59 +539,88 @@ export function WizardModal({
         ref={modalRef}
         className="relative w-[1376px] max-w-[calc(100vw-2rem)] h-[90vh] bg-[var(--color-base-stroke)] border border-[var(--color-base-stroke)] rounded-[32px] shadow-2xl flex flex-col overflow-hidden"
       >
-        {/* Робоча область: зліва 24px, справа 8px, зверху 8px, знизу 8px; Preview Area отримає додатковий pb окремо */}
-        <div className="flex-1 flex min-h-0 pl-6 pr-2 pt-2 pb-2 gap-0">
-          {/* Preview Area — додатковий відступ знизу 64px */}
-          <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep <= 1 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
+        {/* Global Wizard Header */}
+        <WizardHeader intent={intent} updateIntent={updateIntent} onClose={onClose} firstFocusableRef={firstFocusableRef} />
+
+        {/* Робоча область */}
+        <div className="flex-1 flex min-h-0 pl-6 pr-2 pb-2 gap-0">
+          {/* Preview Area */}
+          <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep === 0 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
               {currentStep === 0 && (
                 <AnimatedStep stepKey={0}>
-                  <Step0PreviewArea intent={intent} updateIntent={updateIntent} />
+                  <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} onTabChange={setStep1ActiveTab} />
                 </AnimatedStep>
               )}
-              {currentStep === 1 && (
-                <AnimatedStep stepKey={1}>
-                  <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} />
-                </AnimatedStep>
-              )}
-              {currentStep >= 2 && currentStep <= 4 && (
-                <SmartTablePreview intent={intent} activeStep={currentStep as 2 | 3 | 4} />
-              )}
-              {currentStep >= 5 && (
-                <AnimatedStep stepKey={currentStep}>
-                  <StepGenericPreview step={currentStep} intent={intent} />
-                </AnimatedStep>
+              {currentStep >= 1 && currentStep <= 3 && (
+                <SmartTablePreview intent={intent} activeStep={currentStep as 1 | 2 | 3} updateIntent={updateIntent} />
               )}
           </div>
 
-          {/* Right Tool Panel — повна висота, 8px від низу модалки через pb-2 контейнера */}
+          {/* Right Tool Panel */}
           <div className="relative z-10 w-[465px] min-w-[465px] max-w-[465px] shrink-0 flex flex-col min-h-0 bg-[var(--color-base-surface-primary)] rounded-[24px] overflow-hidden border border-[var(--color-base-stroke)]">
-            <button
-              ref={firstFocusableRef}
-              onClick={onClose}
-              className="absolute top-4 right-4 z-10 p-2 rounded-lg text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
-              aria-label="Close"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-            {/* Фіксований хедер: інформація про степ */}
-            <div className="shrink-0 px-4 pt-6 pb-4 border-b border-[var(--color-base-stroke)]">
-              <p className="text-paragraph-2 text-[var(--color-base-secondary)]">
-                Step {currentStep + 1} of {WIZARD_STEPS.length}
-              </p>
+            {/* Step tabs */}
+            <div className="shrink-0 flex items-center gap-1.5 px-4 pt-4 pb-2">
+              {WIZARD_STEPS.map((step, idx) => {
+                const isActive = currentStep === idx;
+                const canNav = canNavigateToStep(idx);
+                return (
+                  <button
+                    key={step.id}
+                    type="button"
+                    onClick={() => handleGoToStep(idx)}
+                    disabled={!canNav && !isActive}
+                    className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+                      isActive
+                        ? "bg-[var(--color-brand-primary)] text-white"
+                        : canNav
+                          ? "bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-tertiary)]"
+                          : "bg-[var(--color-base-surface-secondary)] text-[var(--color-base-tertiary)] opacity-50 cursor-not-allowed"
+                    }`}
+                  >
+                    {["Inner Page", "Table Config", "Filters", "Actions"][idx]}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Step info header */}
+            <div className={`shrink-0 px-4 pt-2 ${currentStep === 0 ? "pb-0" : "pb-4 border-b border-[var(--color-base-stroke)]"}`}>
               <h3 className="text-xl font-medium text-[var(--color-base-primary)] mt-1">
                 {WIZARD_STEPS[currentStep]?.title}
               </h3>
-              {(currentStep !== 0 && currentStep !== 1) ? (
-                <p className="text-sm text-[var(--color-base-secondary)] mt-1">
-                  {WIZARD_STEPS[currentStep]?.description}
-                </p>
-              ) : (
-                <p className="text-sm text-[var(--color-base-secondary)] mt-1">
-                  {currentStep === 0 && "Name your page and choose where it appears in the sidebar."}
-                  {currentStep === 1 && "Configure the page users will see when creating or editing an item."}
-                </p>
+              <p className="text-sm text-[var(--color-base-secondary)] mt-1">
+                {WIZARD_STEPS[currentStep]?.description}
+              </p>
+              {currentStep === 0 && (
+                <div className="flex mt-4 border-b border-[var(--color-base-stroke)]">
+                  <button
+                    type="button"
+                    onClick={() => setStep1ActiveTab("sections")}
+                    className={`pb-2.5 mr-6 text-base font-medium transition-colors relative ${
+                      step1ActiveTab === "sections"
+                        ? "text-[var(--color-base-primary)]"
+                        : "text-[var(--color-base-tertiary)] hover:text-[var(--color-base-secondary)]"
+                    }`}
+                  >
+                    Main Section
+                    {step1ActiveTab === "sections" && (
+                      <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-base-primary)] rounded-full" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep1ActiveTab("properties")}
+                    className={`pb-2.5 text-base font-medium transition-colors relative ${
+                      step1ActiveTab === "properties"
+                        ? "text-[var(--color-base-primary)]"
+                        : "text-[var(--color-base-tertiary)] hover:text-[var(--color-base-secondary)]"
+                    }`}
+                  >
+                    Details Section
+                    {step1ActiveTab === "properties" && (
+                      <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-base-primary)] rounded-full" />
+                    )}
+                  </button>
+                </div>
               )}
             </div>
             {/* Скроловане тіло */}
@@ -357,27 +647,19 @@ export function WizardModal({
               }}
             >
               {currentStep === 0 && (
-                <Step0Form intent={intent} updateIntent={updateIntent} />
-              )}
-              {currentStep === 1 && (
                 <StepCreatePage intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} setActiveTab={setStep1ActiveTab} />
               )}
-              {currentStep === 2 && (
+              {currentStep === 1 && (
                 <StepTableColumns intent={intent} updateIntent={updateIntent} />
               )}
-              {currentStep === 3 && (
+              {currentStep === 2 && (
                 <div className="mt-4 px-4">
                   <StepFilters intent={intent} updateIntent={updateIntent} />
                 </div>
               )}
-              {currentStep === 4 && (
+              {currentStep === 3 && (
                 <div className="mt-4 px-4">
                   <StepActions intent={intent} updateIntent={updateIntent} />
-                </div>
-              )}
-              {currentStep === 5 && (
-                <div className="mt-4 px-4">
-                  <StepSummary intent={intent} />
                 </div>
               )}
             </div>
@@ -449,32 +731,73 @@ export function WizardPage({
 
   const canGoNext = useCallback(() => {
     switch (currentStep) {
-      case 0: {
-        const hasTitle = intent.title.trim().length > 0;
-        const hasPlacement = intent.navigation.isNewSection
-          ? intent.navigation.newSectionName.trim().length > 0
-          : intent.navigation.parentSection !== null;
-        const navState = getNavigationState();
-        const allPages = navState.sections.flatMap(s => [
-          s.label.toLowerCase(),
-          ...s.children.map(c => c.label.toLowerCase()),
-        ]);
-        const isDuplicate = allPages.includes(intent.title.trim().toLowerCase());
-        return hasTitle && hasPlacement && !isDuplicate;
-      }
-      case 1:
+      case 0:
         return intent.createPageConfig.sections.length === 1;
-      case 2:
+      case 1:
         return intent.selectedFields.tableColumns.length > 0;
       default:
         return true;
     }
-  }, [currentStep, intent.title, intent.navigation, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
+  }, [currentStep, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
+
+  const isStepComplete = useCallback((step: number) => {
+    switch (step) {
+      case 0: return intent.createPageConfig.sections.length === 1;
+      case 1: return intent.selectedFields.tableColumns.length > 0;
+      default: return true;
+    }
+  }, [intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
+
+  const canNavigateToStep = useCallback((target: number) => {
+    if (target === currentStep) return false;
+    if (target < currentStep) return true;
+    for (let s = 0; s < target; s++) {
+      if (!isStepComplete(s)) return false;
+    }
+    return true;
+  }, [currentStep, isStepComplete]);
+
+  const autoPopulateTableColumns = useCallback(() => {
+    if ((intent.selectedFields?.tableColumns || []).length > 0) return;
+    const allFields = extractFieldsFromConfig(intent.createPageConfig);
+    const detailsItems = migrateDetailsItems(intent.createPageConfig.propertiesPanel);
+    const detailsFields = detailsItems.filter(di => di.kind === "field") as Array<{ id: string; kind: "field"; label: string; type: string }>;
+    const defaults: FieldRef[] = [];
+    const seen = new Set<string>();
+    const addDefault = (id: string) => {
+      if (seen.has(id)) return;
+      const ref = allFields.find(f => f.id === id);
+      if (ref) { seen.add(id); defaults.push({ ...ref }); }
+    };
+    const titleItem = detailsFields.find(f => f.label.toLowerCase().includes("title"));
+    if (titleItem) addDefault(titleItem.id);
+    for (const df of detailsFields) {
+      if (/\bid\b/i.test(df.label)) addDefault(df.id);
+    }
+    addDefault("created-at");
+    if (defaults.length > 0) {
+      updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: defaults } });
+    }
+  }, [intent, updateIntent]);
+
+  const handleGoToStep = useCallback((target: number) => {
+    if (!canNavigateToStep(target)) return;
+    if (!intent.featureId && intent.title.trim()) {
+      updateIntent({ featureId: titleToFeatureId(intent.title) });
+    }
+    if (currentStep === 0 && target > 0) {
+      autoPopulateTableColumns();
+    }
+    setCurrentStep(target);
+  }, [canNavigateToStep, currentStep, intent.featureId, intent.title, updateIntent, autoPopulateTableColumns]);
 
   const handleNext = () => {
     if (currentStep < WIZARD_STEPS.length - 1 && canGoNext()) {
-      if (currentStep === 0 && !intent.featureId) {
+      if (!intent.featureId && intent.title.trim()) {
         updateIntent({ featureId: titleToFeatureId(intent.title) });
+      }
+      if (currentStep === 0) {
+        autoPopulateTableColumns();
       }
       setCurrentStep((prev) => prev + 1);
     }
@@ -487,64 +810,108 @@ export function WizardPage({
   };
 
   const handleSubmit = () => {
-    onSubmit?.(intent);
+    const finalIntent = { ...intent };
+    if (!finalIntent.featureId && finalIntent.title.trim()) {
+      finalIntent.featureId = titleToFeatureId(finalIntent.title);
+    }
+    console.log("[WizardPage] Submitting intent:", {
+      title: finalIntent.title,
+      featureId: finalIntent.featureId,
+      tableColumns: finalIntent.selectedFields?.tableColumns?.length,
+      columns: finalIntent.selectedFields?.tableColumns?.map((c: { id: string; label: string }) => c.label),
+      actions: Object.entries(finalIntent.rowActions || {}).filter(([, v]) => v).map(([k]) => k),
+      sections: finalIntent.createPageConfig?.sections?.length,
+      propertiesSections: finalIntent.createPageConfig?.propertiesPanel?.sections?.length,
+      propertiesFields: finalIntent.createPageConfig?.propertiesPanel?.sections?.flatMap((s: { fields: Array<{ label: string }> }) => s.fields.map((f: { label: string }) => f.label)),
+    });
+    onSubmit?.(finalIntent);
   };
 
   if (!mounted) return null;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--color-base-stroke)]">
-      <div className="flex-1 flex min-h-0 pl-6 pr-2 pt-2 pb-2 gap-0">
+      {/* Global Wizard Header */}
+      <WizardHeader intent={intent} updateIntent={updateIntent} onClose={() => setShowExitConfirm(true)} firstFocusableRef={{ current: null }} />
+
+      <div className="flex-1 flex min-h-0 pl-6 pr-2 pb-2 gap-0">
         {/* Preview Area */}
-        <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep <= 1 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
+        <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep === 0 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
             {currentStep === 0 && (
               <AnimatedStep stepKey={0}>
-                <Step0PreviewArea intent={intent} updateIntent={updateIntent} />
+                <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} onTabChange={setStep1ActiveTab} />
               </AnimatedStep>
             )}
-            {currentStep === 1 && (
-              <AnimatedStep stepKey={1}>
-                <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} />
-              </AnimatedStep>
-            )}
-            {currentStep >= 2 && currentStep <= 4 && (
-              <SmartTablePreview intent={intent} activeStep={currentStep as 2 | 3 | 4} />
-            )}
-            {currentStep >= 5 && (
-              <AnimatedStep stepKey={currentStep}>
-                <StepGenericPreview step={currentStep} intent={intent} />
-              </AnimatedStep>
+            {currentStep >= 1 && currentStep <= 3 && (
+              <SmartTablePreview intent={intent} activeStep={currentStep as 1 | 2 | 3} updateIntent={updateIntent} />
             )}
         </div>
 
         {/* Right Tool Panel */}
         <div className="relative z-10 w-[465px] min-w-[465px] max-w-[465px] shrink-0 flex flex-col min-h-0 bg-[var(--color-base-surface-primary)] rounded-[24px] overflow-hidden border border-[var(--color-base-stroke)]">
-          <button
-            onClick={() => setShowExitConfirm(true)}
-            className="absolute top-4 right-4 z-10 p-2 rounded-lg text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
-            aria-label="Close"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M15 5L5 15M5 5L15 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
+          {/* Step tabs */}
+          <div className="shrink-0 flex items-center gap-1.5 px-4 pt-4 pb-2">
+            {WIZARD_STEPS.map((step, idx) => {
+              const isActive = currentStep === idx;
+              const canNav = canNavigateToStep(idx);
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => handleGoToStep(idx)}
+                  disabled={!canNav && !isActive}
+                  className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+                    isActive
+                      ? "bg-[var(--color-brand-primary)] text-white"
+                      : canNav
+                        ? "bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-tertiary)]"
+                        : "bg-[var(--color-base-surface-secondary)] text-[var(--color-base-tertiary)] opacity-50 cursor-not-allowed"
+                  }`}
+                >
+                  {["Inner Page", "Table Config", "Filters", "Actions"][idx]}
+                </button>
+              );
+            })}
+          </div>
           {/* Step header */}
-          <div className="shrink-0 px-4 pt-6 pb-4 border-b border-[var(--color-base-stroke)]">
-            <p className="text-paragraph-2 text-[var(--color-base-secondary)]">
-              Step {currentStep + 1} of {WIZARD_STEPS.length}
-            </p>
+          <div className={`shrink-0 px-4 pt-2 ${currentStep === 0 ? "pb-0" : "pb-4 border-b border-[var(--color-base-stroke)]"}`}>
             <h3 className="text-xl font-medium text-[var(--color-base-primary)] mt-1">
               {WIZARD_STEPS[currentStep]?.title}
             </h3>
-            {(currentStep !== 0 && currentStep !== 1) ? (
-              <p className="text-sm text-[var(--color-base-secondary)] mt-1">
-                {WIZARD_STEPS[currentStep]?.description}
-              </p>
-            ) : (
-              <p className="text-sm text-[var(--color-base-secondary)] mt-1">
-                {currentStep === 0 && "Name your page and choose where it appears in the sidebar."}
-                {currentStep === 1 && "Configure the page users will see when creating or editing an item."}
-              </p>
+            <p className="text-sm text-[var(--color-base-secondary)] mt-1">
+              {WIZARD_STEPS[currentStep]?.description}
+            </p>
+            {currentStep === 0 && (
+              <div className="flex mt-8 border-b border-[var(--color-base-stroke)]">
+                <button
+                  type="button"
+                  onClick={() => setStep1ActiveTab("sections")}
+                  className={`pb-2.5 mr-6 text-base font-medium transition-colors relative ${
+                    step1ActiveTab === "sections"
+                      ? "text-[var(--color-base-primary)]"
+                      : "text-[var(--color-base-tertiary)] hover:text-[var(--color-base-secondary)]"
+                  }`}
+                >
+                  Main Section
+                  {step1ActiveTab === "sections" && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-base-primary)] rounded-full" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep1ActiveTab("properties")}
+                  className={`pb-2.5 text-base font-medium transition-colors relative ${
+                    step1ActiveTab === "properties"
+                      ? "text-[var(--color-base-primary)]"
+                      : "text-[var(--color-base-tertiary)] hover:text-[var(--color-base-secondary)]"
+                  }`}
+                >
+                  Details Section
+                  {step1ActiveTab === "properties" && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-base-primary)] rounded-full" />
+                  )}
+                </button>
+              </div>
             )}
           </div>
           {/* Scrollable body */}
@@ -571,27 +938,19 @@ export function WizardPage({
             }}
           >
             {currentStep === 0 && (
-              <Step0Form intent={intent} updateIntent={updateIntent} />
-            )}
-            {currentStep === 1 && (
               <StepCreatePage intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} setActiveTab={setStep1ActiveTab} />
             )}
-            {currentStep === 2 && (
+            {currentStep === 1 && (
               <StepTableColumns intent={intent} updateIntent={updateIntent} />
             )}
-            {currentStep === 3 && (
+            {currentStep === 2 && (
               <div className="mt-4 px-4">
                 <StepFilters intent={intent} updateIntent={updateIntent} />
               </div>
             )}
-            {currentStep === 4 && (
+            {currentStep === 3 && (
               <div className="mt-4 px-4">
                 <StepActions intent={intent} updateIntent={updateIntent} />
-              </div>
-            )}
-            {currentStep === 5 && (
-              <div className="mt-4 px-4">
-                <StepSummary intent={intent} />
               </div>
             )}
           </div>
@@ -758,10 +1117,6 @@ function Step0PreviewArea({ intent, updateIntent }: StepProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Надпис Preview — відступ до контенту 40px */}
-      <p className="text-lg font-medium text-[var(--color-base-primary)] px-0 pt-4 mb-10 shrink-0">
-        Preview
-      </p>
 
       {/* Контейнер превʼю навігації: хедер + сайдбар в одному блоці зі stroke, білий фон; заходить під Right Panel */}
       <div
@@ -1036,14 +1391,15 @@ interface PreviewAccordionItem {
   expanded: boolean;
 }
 
-function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardIntent; updateIntent: (updates: Partial<WizardIntent>) => void; activeTab: "sections" | "properties" }) {
+function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { intent: WizardIntent; updateIntent: (updates: Partial<WizardIntent>) => void; activeTab: "sections" | "properties"; onTabChange?: (tab: "sections" | "properties") => void }) {
   const config = intent.createPageConfig;
   const section = config.sections[0];
   const sectionConfig = section?.config as Record<string, unknown> | undefined;
   const sectionItems = migrateSectionItems(sectionConfig);
-  const actions = (sectionConfig?.actions ?? []) as string[];
+  const actions = (sectionConfig?.actions ?? ["copy", "delete"]) as string[];
   const enableReorder = (sectionConfig?.enableReorder as boolean | undefined) !== false;
-  const featureName = intent.title || "Auction";
+  const allowTitleEditing = (sectionConfig?.allowTitleEditing as boolean | undefined) !== false;
+  const featureName = intent.title || "Feature Name";
 
   const [items, setItems] = useState<PreviewAccordionItem[]>([
     { id: "preview-1", name: "Section name", expanded: true },
@@ -1193,10 +1549,14 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
   
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
+  const [toolbarMenuPos, setToolbarMenuPos] = useState({ top: 0, left: 0 });
+  const [accordionMenuId, setAccordionMenuId] = useState<string | null>(null);
+  const [accordionMenuPos, setAccordionMenuPos] = useState({ top: 0, left: 0 });
 
   React.useEffect(() => {
-    if (!openMenuId) return;
-    const close = () => setOpenMenuId(null);
+    if (!openMenuId && !toolbarMenuOpen && !accordionMenuId) return;
+    const close = () => { setOpenMenuId(null); setToolbarMenuOpen(false); setAccordionMenuId(null); };
     const onScroll = () => close();
     const scrollEl = scrollContainerRef.current;
     if (scrollEl) scrollEl.addEventListener("scroll", onScroll, { passive: true });
@@ -1205,7 +1565,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
       if (scrollEl) scrollEl.removeEventListener("scroll", onScroll);
       document.removeEventListener("scroll", onScroll, { capture: true });
     };
-  }, [openMenuId]);
+  }, [openMenuId, toolbarMenuOpen, accordionMenuId]);
 
   const rows = groupByRows(sectionItems);
 
@@ -1248,6 +1608,23 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
       },
     });
   }, [section, config, sectionConfig, updateIntent]);
+
+  const updateSectionConfigFromPreview = useCallback((updates: Record<string, unknown>) => {
+    if (!section) return;
+    updateIntent({
+      createPageConfig: {
+        ...config,
+        sections: [{ ...section, config: { ...sectionConfig, ...updates } }],
+      },
+    });
+  }, [section, config, sectionConfig, updateIntent]);
+
+  const toggleAccordionAction = useCallback((action: string) => {
+    const next = actions.includes(action)
+      ? actions.filter((a: string) => a !== action)
+      : [...actions, action];
+    updateSectionConfigFromPreview({ actions: next });
+  }, [actions, updateSectionConfigFromPreview]);
 
   const addFieldFromPalette = useCallback((type: string, label: string, atIndex?: number, joinRowId?: string) => {
     const kind = type === "action" ? "action" as const : "field" as const;
@@ -1432,12 +1809,8 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
 
   return (
     <div className="h-full flex flex-col overflow-visible">
-      <p className="text-lg font-medium text-[var(--color-base-primary)] px-0 pt-4 mb-10 shrink-0">
-        Preview
-      </p>
-
       <div
-        className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl mr-[-465px]"
+        className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl mr-[-465px] ml-[-300px] pl-[300px]"
         style={{ minHeight: 200 }}
       >
         {/* Page header: Create {featureName} + Save buttons */}
@@ -1445,6 +1818,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
           <span className="text-headline-1 text-[var(--color-base-primary)]">
             Create {featureName}
           </span>
+          {/* Save buttons — hidden for now
           <div className="flex items-center gap-2 opacity-50" style={{ marginRight: "calc(465px - 80px)" }}>
             {config.saveChanges && (
               <Button variant="secondary">Save Changes</Button>
@@ -1458,28 +1832,30 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
               </Button>
             )}
           </div>
+          */}
         </div>
 
         {/* Main content area */}
-        <div className="flex-1 min-h-0 overflow-hidden relative mt-2">
+        <div className="flex-1 min-h-0 relative mt-2">
           <div
-            className="h-full w-full flex gap-6 transition-transform duration-300 ease-in-out"
+            className="h-full w-full flex gap-[48px] transition-transform duration-300 ease-in-out"
             style={{
-              transform: activeTab === "properties" ? "translateX(-278px)" : "translateX(0)",
+              transform: activeTab === "properties" ? "translateX(-300px)" : "translateX(0)",
             }}
           >
           {/* Main Section */}
           <div
-            className="shrink-0 flex flex-col transition-opacity duration-300 ease-in-out"
+            className={`shrink-0 flex flex-col transition-opacity duration-300 ease-in-out ${activeTab !== "sections" ? "cursor-pointer" : ""}`}
             style={{
               width: "calc(100% - 555px)",
               opacity: activeTab === "sections" ? 1 : 0.3,
-              pointerEvents: activeTab === "sections" ? "auto" : "none",
             }}
+            onClick={() => { if (activeTab !== "sections") onTabChange?.("sections"); }}
           >
             <div
               ref={scrollContainerRef}
-              className="flex-1 overflow-y-auto pl-0 pt-0 pb-4 pr-0 hide-scrollbar rounded-xl"
+              className="flex-1 overflow-y-auto pl-0 pt-0 pb-6 pr-[36px] mr-[-36px] hide-scrollbar rounded-xl"
+              style={{ pointerEvents: activeTab === "sections" ? "auto" : "none" }}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes("palette-component") || e.dataTransfer.types.includes("field-reorder")) {
                   startAutoScroll(e.clientY);
@@ -1490,18 +1866,53 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
               }}
             >
               {/* Toolbar */}
-              {config.showToolbar && (
-                <div className="flex items-center justify-between mb-2 px-3 py-2 rounded-xl bg-[var(--color-base-surface-primary)]">
-                  <div className="flex items-center gap-2">
-                    <Button variant="secondary" onClick={addItem} leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>
-                      <span>Add</span>
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="secondary" onClick={expandAll}>Expand All</Button>
-                    <Button variant="secondary" onClick={collapseAll}>Collapse All</Button>
-                  </div>
+              <div className={`group/toolbar relative flex items-center justify-between mb-2 px-3 py-2 rounded-xl bg-[var(--color-base-surface-primary)] transition-opacity duration-200 ${!config.showToolbar ? "opacity-20" : ""}`}>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" onClick={addItem} leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>
+                    <span>Add</span>
+                  </Button>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" onClick={expandAll}>Expand All</Button>
+                  <Button variant="secondary" onClick={collapseAll}>Collapse All</Button>
+                </div>
+                <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/toolbar:opacity-100 transition-opacity">
+                  <IconButton
+                    size="sm"
+                    aria-label="Toolbar settings"
+                    icon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="3" cy="8" r="1.5" fill="currentColor"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><circle cx="13" cy="8" r="1.5" fill="currentColor"/></svg>}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (toolbarMenuOpen) { setToolbarMenuOpen(false); return; }
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setToolbarMenuPos({ top: rect.bottom + 4, left: rect.right - 224 });
+                      setToolbarMenuOpen(true);
+                      setAccordionMenuId(null);
+                      setOpenMenuId(null);
+                    }}
+                  />
+                </div>
+              </div>
+              {/* Toolbar settings dropdown */}
+              {toolbarMenuOpen && createPortal(
+                <>
+                  <div className="fixed inset-0 z-[10000]" onMouseDown={() => setToolbarMenuOpen(false)} />
+                  <div
+                    className="fixed z-[10001] w-56 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1"
+                    style={{ top: toolbarMenuPos.top, left: toolbarMenuPos.left }}
+                  >
+                    <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                      <Checkbox
+                        checked={!config.showToolbar}
+                        onCheckedChange={() => {
+                          updateIntent({ createPageConfig: { ...config, showToolbar: !config.showToolbar } });
+                        }}
+                      />
+                      <span className="text-sm text-[var(--color-base-primary)]">Don&apos;t show toolbar</span>
+                    </label>
+                  </div>
+                </>,
+                document.body
               )}
 
               {/* Accordion items */}
@@ -1527,12 +1938,12 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                     </div>
                   <div
                     data-accordion-idx={idx}
-                    className={`border border-[var(--color-base-stroke)] rounded-lg overflow-hidden bg-[var(--color-base-surface-primary)] transition-all duration-200 ease-in-out ${
+                    className={`group/accordion relative border border-[var(--color-base-stroke)] rounded-lg overflow-visible bg-[var(--color-base-surface-primary)] transition-all duration-200 ease-in-out ${
                       draggingAccordionIdx === idx ? "opacity-30 scale-[0.97]" : "opacity-100 scale-100"
                     } ${idx > 0 && dragOverIdx !== idx ? "mt-2" : ""}`}
                   >
                     {/* Accordion header */}
-                    <div className="flex items-center gap-2 px-3 h-12 bg-[var(--color-base-surface-secondary)] border-b border-[var(--color-base-stroke)]">
+                    <div className="flex items-center gap-2 px-3 h-12 bg-[var(--color-base-surface-secondary)] border-b border-[var(--color-base-stroke)] rounded-t-[7px]">
                       {enableReorder && (
                         <div
                           draggable
@@ -1548,6 +1959,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                           value={item.name}
                           onChange={(e) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, name: e.target.value } : i))}
                           className="w-full !border-0 !bg-transparent !shadow-none !ring-0 font-medium"
+                          disabled={!allowTitleEditing}
                         />
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -1805,19 +2217,19 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                                         <>
                                           <div className="relative flex items-center mb-1.5">
                                             <div className="flex items-center min-w-0 overflow-hidden">
-                                              <div className="flex items-center shrink min-w-0">
+                                              <span className="relative inline-flex items-center shrink min-w-0">
+                                                <span className="invisible whitespace-pre text-label-normal">{si.label || "Field name"}</span>
                                                 <input
                                                   type="text"
                                                   value={si.label}
                                                   onChange={(e) => updateField(si.id, { label: e.target.value })}
-                                                  className="text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-[3ch]"
-                                                  size={Math.max(si.label.length || 1, 1)}
+                                                  className="absolute inset-0 w-full text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
                                                   placeholder="Field name"
                                                 />
                                                 {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
-                                              </div>
-                                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <path d="M8.5 1.5L10.5 3.5M1 11L1.5 8.5L9.5 0.5L11.5 2.5L3.5 10.5L1 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                                              </span>
+                                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
                                               </svg>
                                             </div>
                                             <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
@@ -1966,6 +2378,63 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                         )}
                       </div>
                     )}
+                  {/* More button — absolute, outside accordion card */}
+                  <div className="absolute left-full ml-2 top-1.5 opacity-0 group-hover/accordion:opacity-100 transition-opacity">
+                    <IconButton
+                      size="sm"
+                      aria-label="Accordion settings"
+                      icon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="3" cy="8" r="1.5" fill="currentColor"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><circle cx="13" cy="8" r="1.5" fill="currentColor"/></svg>}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (accordionMenuId === item.id) { setAccordionMenuId(null); return; }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setAccordionMenuPos({ top: rect.bottom + 4, left: rect.right - 260 });
+                        setAccordionMenuId(item.id);
+                        setToolbarMenuOpen(false);
+                        setOpenMenuId(null);
+                      }}
+                    />
+                  </div>
+                  {/* Accordion settings dropdown */}
+                  {accordionMenuId === item.id && createPortal(
+                    <>
+                      <div className="fixed inset-0 z-[10000]" onMouseDown={() => setAccordionMenuId(null)} />
+                      <div
+                        className="fixed z-[10001] w-[260px] rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1"
+                        style={{ top: accordionMenuPos.top, left: accordionMenuPos.left }}
+                      >
+                        <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                          <Checkbox
+                            checked={enableReorder}
+                            onCheckedChange={() => updateSectionConfigFromPreview({ enableReorder: !enableReorder })}
+                          />
+                          <span className="text-sm text-[var(--color-base-primary)]">Enable Sections Reordering</span>
+                        </label>
+                        <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                          <Checkbox
+                            checked={allowTitleEditing}
+                            onCheckedChange={() => updateSectionConfigFromPreview({ allowTitleEditing: !allowTitleEditing })}
+                          />
+                          <span className="text-sm text-[var(--color-base-primary)]">Allow Section Title Editing</span>
+                        </label>
+                        <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                          <Checkbox
+                            checked={actions.includes("copy")}
+                            onCheckedChange={() => toggleAccordionAction("copy")}
+                          />
+                          <span className="text-sm text-[var(--color-base-primary)]">Allow Section Duplicating</span>
+                        </label>
+                        <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                          <Checkbox
+                            checked={actions.includes("delete")}
+                            onCheckedChange={() => toggleAccordionAction("delete")}
+                          />
+                          <span className="text-sm text-[var(--color-base-primary)]">Allow Section Deletion</span>
+                        </label>
+                      </div>
+                    </>,
+                    document.body
+                  )}
                   </div>
                   </React.Fragment>
                 ))}
@@ -1987,15 +2456,15 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
 
           {/* Details panel — під Right Panel */}
           <div
-            className="w-[330px] min-w-[330px] shrink-0 rounded-2xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] flex flex-col transition-opacity duration-300 ease-in-out overflow-hidden"
+            className={`w-[330px] min-w-[330px] shrink-0 rounded-2xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] flex flex-col transition-opacity duration-300 ease-in-out overflow-hidden ${activeTab !== "properties" ? "cursor-pointer" : ""}`}
             style={{
               opacity: activeTab === "properties" ? 1 : 0.4,
-              pointerEvents: activeTab === "properties" ? "auto" : "none",
             }}
+            onClick={() => { if (activeTab !== "properties") onTabChange?.("properties"); }}
           >
             {/* Status header — 48px */}
             {config.propertiesPanel.statusToggle && (
-              <div className="shrink-0 h-12 flex items-center justify-between px-4 border-b border-[var(--color-base-stroke)]">
+              <div className="shrink-0 h-12 flex items-center justify-between px-4 border-b border-[var(--color-base-stroke)]" style={{ pointerEvents: activeTab === "properties" ? "auto" : "none" }}>
                 <span className="text-sm font-medium text-[var(--color-base-primary)]">
                   {config.propertiesPanel.statusLabel || "Status"}
                 </span>
@@ -2008,7 +2477,8 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
 
             {/* Scrollable content with drag-and-drop */}
             <div
-              className="flex-1 overflow-y-auto p-2 space-y-0 hide-scrollbar"
+              className="flex-1 overflow-y-auto p-1 space-y-0 hide-scrollbar"
+              style={{ pointerEvents: activeTab === "properties" ? "auto" : "none" }}
               onDragOver={handleDetailsContainerDragOver}
               onDragLeave={() => setDetailsDropIdx(null)}
               onDrop={handleDetailsContainerDrop}
@@ -2021,11 +2491,9 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
               {detailsItems.map((si, idx) => (
                 <React.Fragment key={si.id}>
                   {/* Drop indicator */}
-                  <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
-                    detailsDropIdx === idx
-                      ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
-                      : "h-0 border-0 opacity-0"
-                  }`} />
+                  {detailsDropIdx === idx && (
+                    <div className="h-10 rounded-lg border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5" />
+                  )}
 
                   <div
                     data-details-idx={idx}
@@ -2062,7 +2530,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                       }}
                       onDragEnd={() => { setDetailsDraggingIdx(null); setDetailsDropIdx(null); }}
                       className={`shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity ${
-                        si.kind === "field" ? "mt-7" : "mt-2.5"
+                        si.kind === "field" ? "mt-7" : "mt-1"
                       }`}
                     >
                       <PreviewDragHandleIcon />
@@ -2072,16 +2540,18 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                     <div className="flex-1 min-w-0">
                       {si.kind === "section" ? (
                         <div className="relative flex items-center mb-1 pt-1">
-                          <input
-                            type="text"
-                            value={si.title}
-                            onChange={(e) => updateDetailsItem(si.id, { title: e.target.value })}
-                            className="text-sm font-medium text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-[3ch]"
-                            size={Math.max((si.title || "").length || 1, 1)}
-                            placeholder="Section title"
-                          />
-                          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
-                            <path d="M8.5 1.5L10.5 3.5M1 11L1.5 8.5L9.5 0.5L11.5 2.5L3.5 10.5L1 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                          <span className="relative inline-flex">
+                            <span className="invisible whitespace-pre text-sm font-medium">{si.title || "Section title"}</span>
+                            <input
+                              type="text"
+                              value={si.title}
+                              onChange={(e) => updateDetailsItem(si.id, { title: e.target.value })}
+                              className="absolute inset-0 w-full text-sm font-medium text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
+                              placeholder="Section title"
+                            />
+                          </span>
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                            <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
                           </svg>
                           <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
                             <button
@@ -2108,19 +2578,19 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                         <>
                           <div className="relative flex items-center mb-1.5">
                             <div className="flex items-center min-w-0 overflow-hidden">
-                              <div className="flex items-center shrink min-w-0">
+                              <span className="relative inline-flex items-center shrink min-w-0">
+                                <span className="invisible whitespace-pre text-label-normal">{si.label || "Field name"}</span>
                                 <input
                                   type="text"
                                   value={si.label}
                                   onChange={(e) => updateDetailsItem(si.id, { label: e.target.value })}
-                                  className="text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0 min-w-[3ch]"
-                                  size={Math.max(si.label.length || 1, 1)}
+                                  className="absolute inset-0 w-full text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
                                   placeholder="Field name"
                                 />
                                 {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
-                              </div>
-                              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
-                                <path d="M8.5 1.5L10.5 3.5M1 11L1.5 8.5L9.5 0.5L11.5 2.5L3.5 10.5L1 11Z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </span>
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                                <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
                               </svg>
                             </div>
                             <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
@@ -2222,16 +2692,14 @@ function Step1PreviewArea({ intent, updateIntent, activeTab }: { intent: WizardI
                 </React.Fragment>
               ))}
               {/* Drop indicator at end */}
-              <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
-                detailsDropIdx === detailsItems.length
-                  ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
-                  : "h-0 border-0 opacity-0"
-              }`} />
+              {detailsDropIdx === detailsItems.length && (
+                <div className="h-10 rounded-lg border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5" />
+              )}
             </div>
 
             {/* Delete footer — прибитий до низу */}
             {config.propertiesPanel.showDelete && (
-              <div className="shrink-0 h-14 flex items-center border-t border-[var(--color-base-stroke)] px-4">
+              <div className="shrink-0 h-14 flex items-center border-t border-[var(--color-base-stroke)] px-4" style={{ pointerEvents: activeTab === "properties" ? "auto" : "none" }}>
                 <Button variant="secondary" disabled className="w-full opacity-50">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -2273,11 +2741,233 @@ function FilterChip({ label }: { label: string }) {
 
 const TRANSITION = "transition-all duration-500 ease-in-out";
 
-function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activeStep: 2 | 3 | 4 }) {
+function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: WizardIntent; activeStep: 1 | 2 | 3; updateIntent?: (updates: Partial<WizardIntent>) => void }) {
   const selectedColumns = (intent.selectedFields?.tableColumns || []).filter(
     (f): f is FieldRef => f != null && typeof f.id === "string"
   );
   const skeletonRows = 6;
+
+  const [colDragFrom, setColDragFrom] = useState<number | null>(null);
+  const [colDragTarget, setColDragTarget] = useState<number | null>(null);
+  const [colGhostPos, setColGhostPos] = useState<{ x: number; y: number } | null>(null);
+  const [colGhostLabel, setColGhostLabel] = useState("");
+  const [colScrolling, setColScrolling] = useState(false);
+  const colThRefs = useRef<(HTMLTableCellElement | null)[]>([]);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const autoScrollRaf = useRef<number>(0);
+  const colDragRef = useRef<{
+    fromIdx: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+    initialRects: DOMRect[];
+    initialScrollLeft: number;
+    lastClientX: number;
+  } | null>(null);
+
+  const EDGE_ZONE = 48;
+  const MAX_SCROLL_SPEED = 12;
+
+  const findTarget = useCallback((clientX: number, fromIdx: number) => {
+    const info = colDragRef.current;
+    const el = tableScrollRef.current;
+    if (!info || !el) return fromIdx;
+    const scrollDelta = el.scrollLeft - info.initialScrollLeft;
+    let target = fromIdx;
+    for (let i = 0; i < info.initialRects.length; i++) {
+      const r = info.initialRects[i];
+      if (!r || r.width === 0) continue;
+      const left = r.left - scrollDelta;
+      const right = r.right - scrollDelta;
+      const mid = left + r.width / 2;
+      if (clientX >= left && clientX < mid && i !== fromIdx) { target = i; break; }
+      if (clientX >= mid && clientX < right && i !== fromIdx) { target = i; break; }
+    }
+    return target;
+  }, []);
+
+  const startAutoScroll = useCallback(() => {
+    const tick = () => {
+      const info = colDragRef.current;
+      const el = tableScrollRef.current;
+      if (!info?.active || !el) { autoScrollRaf.current = 0; setColScrolling(false); return; }
+
+      const rect = el.getBoundingClientRect();
+      const x = info.lastClientX;
+      let speed = 0;
+
+      if (x < rect.left + EDGE_ZONE && el.scrollLeft > 0) {
+        const ratio = 1 - Math.max(0, x - rect.left) / EDGE_ZONE;
+        speed = -Math.round(MAX_SCROLL_SPEED * ratio);
+      } else if (x > rect.right - EDGE_ZONE && el.scrollLeft < el.scrollWidth - el.clientWidth) {
+        const ratio = 1 - Math.max(0, rect.right - x) / EDGE_ZONE;
+        speed = Math.round(MAX_SCROLL_SPEED * ratio);
+      }
+
+      if (speed !== 0) {
+        setColScrolling(true);
+        el.scrollLeft += speed;
+        const target = findTarget(info.lastClientX, info.fromIdx);
+        setColDragTarget(target);
+      } else {
+        setColScrolling(false);
+      }
+
+      autoScrollRaf.current = requestAnimationFrame(tick);
+    };
+    if (!autoScrollRaf.current) autoScrollRaf.current = requestAnimationFrame(tick);
+  }, [findTarget]);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollRaf.current) {
+      cancelAnimationFrame(autoScrollRaf.current);
+      autoScrollRaf.current = 0;
+    }
+    setColScrolling(false);
+  }, []);
+
+  const colReorder = useCallback((fromIdx: number, toIdx: number) => {
+    if (fromIdx === toIdx || !updateIntent) return;
+    const next = [...selectedColumns];
+    const [removed] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, removed);
+    updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: next } });
+  }, [selectedColumns, intent.selectedFields, updateIntent]);
+
+  const handleColPointerDown = useCallback((e: React.PointerEvent, idx: number) => {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const initialRects = colThRefs.current.map(el => el?.getBoundingClientRect() ?? new DOMRect());
+    const initialScrollLeft = tableScrollRef.current?.scrollLeft ?? 0;
+    colDragRef.current = { fromIdx: idx, startX: e.clientX, startY: e.clientY, active: false, initialRects, initialScrollLeft, lastClientX: e.clientX };
+  }, []);
+
+  const handleColPointerMove = useCallback((e: React.PointerEvent) => {
+    const info = colDragRef.current;
+    if (!info) return;
+
+    info.lastClientX = e.clientX;
+
+    if (!info.active) {
+      const dx = Math.abs(e.clientX - info.startX);
+      if (dx < 4) return;
+      info.active = true;
+      setColDragFrom(info.fromIdx);
+      setColGhostLabel(selectedColumns[info.fromIdx]?.label ?? "");
+      startAutoScroll();
+    }
+
+    setColGhostPos({ x: e.clientX, y: e.clientY });
+
+    const target = findTarget(e.clientX, info.fromIdx);
+    setColDragTarget(target);
+  }, [selectedColumns, findTarget, startAutoScroll]);
+
+  const handleColPointerUp = useCallback(() => {
+    const info = colDragRef.current;
+    colDragRef.current = null;
+    stopAutoScroll();
+    if (info?.active && colDragTarget !== null && colDragTarget !== info.fromIdx) {
+      colReorder(info.fromIdx, colDragTarget);
+    }
+    setColDragFrom(null);
+    setColDragTarget(null);
+    setColGhostPos(null);
+    setColGhostLabel("");
+  }, [colDragTarget, colReorder, stopAutoScroll]);
+
+  const getColOrder = useCallback(() => {
+    if (colDragFrom === null || colDragTarget === null || colDragFrom === colDragTarget) {
+      return selectedColumns.map((_, i) => i);
+    }
+    const order = selectedColumns.map((_, i) => i);
+    const [removed] = order.splice(colDragFrom, 1);
+    order.splice(colDragTarget, 0, removed);
+    return order;
+  }, [selectedColumns, colDragFrom, colDragTarget]);
+
+  const [tableDropHighlight, setTableDropHighlight] = useState(false);
+  const [newColInsertIdx, setNewColInsertIdx] = useState<number | null>(null);
+  const newColScrollRaf = useRef<number>(0);
+  const newColLastClientX = useRef<number>(0);
+
+  const computeInsertIdx = useCallback((clientX: number) => {
+    const el = tableScrollRef.current;
+    if (!el || !colThRefs.current.length) return selectedColumns.length;
+    const scrollDelta = 0;
+    let insertAt = selectedColumns.length;
+    for (let i = 0; i < colThRefs.current.length; i++) {
+      const th = colThRefs.current[i];
+      if (!th) continue;
+      const r = th.getBoundingClientRect();
+      const mid = r.left + r.width / 2;
+      if (clientX < mid) { insertAt = i; break; }
+    }
+    return insertAt;
+  }, [selectedColumns.length]);
+
+  const startNewColAutoScroll = useCallback(() => {
+    const tick = () => {
+      const el = tableScrollRef.current;
+      if (!el) { newColScrollRaf.current = 0; return; }
+      const rect = el.getBoundingClientRect();
+      const x = newColLastClientX.current;
+      let speed = 0;
+      if (x < rect.left + EDGE_ZONE && el.scrollLeft > 0) {
+        speed = -Math.round(MAX_SCROLL_SPEED * (1 - Math.max(0, x - rect.left) / EDGE_ZONE));
+      } else if (x > rect.right - EDGE_ZONE && el.scrollLeft < el.scrollWidth - el.clientWidth) {
+        speed = Math.round(MAX_SCROLL_SPEED * (1 - Math.max(0, rect.right - x) / EDGE_ZONE));
+      }
+      if (speed !== 0) {
+        el.scrollLeft += speed;
+        setNewColInsertIdx(computeInsertIdx(newColLastClientX.current));
+      }
+      newColScrollRaf.current = requestAnimationFrame(tick);
+    };
+    if (!newColScrollRaf.current) newColScrollRaf.current = requestAnimationFrame(tick);
+  }, [computeInsertIdx]);
+
+  const stopNewColAutoScroll = useCallback(() => {
+    if (newColScrollRaf.current) {
+      cancelAnimationFrame(newColScrollRaf.current);
+      newColScrollRaf.current = 0;
+    }
+  }, []);
+
+  const handleTableDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("table-field")) return;
+    e.preventDefault();
+    newColLastClientX.current = e.clientX;
+    setTableDropHighlight(true);
+    if (selectedColumns.length > 0) {
+      setNewColInsertIdx(computeInsertIdx(e.clientX));
+      if (!newColScrollRaf.current) startNewColAutoScroll();
+    }
+  }, [selectedColumns.length, computeInsertIdx, startNewColAutoScroll]);
+
+  const handleTableDragLeave = useCallback(() => {
+    setTableDropHighlight(false);
+    setNewColInsertIdx(null);
+    stopNewColAutoScroll();
+  }, [stopNewColAutoScroll]);
+
+  const handleTableDrop = useCallback((e: React.DragEvent) => {
+    const insertAt = newColInsertIdx ?? selectedColumns.length;
+    setTableDropHighlight(false);
+    setNewColInsertIdx(null);
+    stopNewColAutoScroll();
+    const raw = e.dataTransfer.getData("table-field");
+    if (!raw || !updateIntent) return;
+    e.preventDefault();
+    try {
+      const field = JSON.parse(raw) as FieldRef;
+      if (selectedColumns.some(c => c.id === field.id)) return;
+      const next = [...selectedColumns];
+      next.splice(insertAt, 0, field);
+      updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: next } });
+    } catch { /* ignore */ }
+  }, [selectedColumns, intent.selectedFields, updateIntent, newColInsertIdx, stopNewColAutoScroll]);
+
   const colWidth = 192;
 
   const hasSearch = intent.filters?.freeTextSearch ?? false;
@@ -2285,10 +2975,10 @@ function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activ
     (col) => intent.filters?.fieldFilters?.[col.id]
   );
 
-  const showFilters = activeStep >= 3;
-  const filtersOpacity = activeStep === 3 ? 1 : activeStep === 4 ? 0.4 : 0;
-  const titleOpacity = activeStep <= 3 ? 1 : 0.4;
-  const tableOpacity = activeStep === 2 ? 1 : 0.4;
+  const showFilters = activeStep >= 2;
+  const filtersOpacity = activeStep === 2 ? 1 : activeStep === 3 ? 0.4 : 0;
+  const titleOpacity = activeStep <= 2 ? 1 : 0.4;
+  const tableOpacity = activeStep === 1 ? 1 : 0.4;
 
   const rowActions = intent.rowActions;
   const activeActions: { icon: React.ReactNode; label: string }[] = [];
@@ -2308,7 +2998,8 @@ function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activ
     label: "Delete",
     icon: <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-status-error)]"><path d="M3 4H13M6 4V3C6 2.45 6.45 2 7 2H9C9.55 2 10 2.45 10 3V4M12 4V13C12 13.55 11.55 14 11 14H5C4.45 14 4 13.55 4 13V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
   });
-  const showActions = activeStep === 4 && activeActions.length > 0;
+  const showActions = activeStep === 3 && activeActions.length > 0;
+  const actionsColWidth = activeActions.length * 36 + 24;
 
   const measureRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -2373,18 +3064,16 @@ function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activ
 
   return (
     <div className="h-full flex flex-col overflow-visible">
-      <p className="text-lg font-medium text-[var(--color-base-primary)] px-0 pt-4 mb-10 shrink-0">
-        Preview
-      </p>
-
       <div className="flex-1 min-h-0 pr-6 space-y-4">
-        {/* Title */}
-        <h2
-          className={`text-headline-1 font-semibold text-[var(--color-base-primary)] ${TRANSITION}`}
-          style={{ opacity: titleOpacity }}
-        >
-          {intent.title || "Feature Name"}
-        </h2>
+        {/* Title — same h-12 wrapper as Step 1 */}
+        <div className="h-12 flex items-center shrink-0">
+          <h2
+            className={`text-headline-1 font-semibold text-[var(--color-base-primary)] ${TRANSITION}`}
+            style={{ opacity: titleOpacity }}
+          >
+            {intent.title || "Feature Name"}
+          </h2>
+        </div>
 
         {/* Hidden measurement row (always present for filters) */}
         <div
@@ -2448,29 +3137,95 @@ function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activ
 
         {/* Table */}
         {selectedColumns.length === 0 ? (
-          <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-[var(--color-base-tertiary)]">Select columns in the right panel to see the table preview</p>
+          <div
+            className={`flex items-center justify-center py-16 rounded-xl border-2 border-dashed transition-colors ${
+              tableDropHighlight ? "border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5" : "border-transparent"
+            }`}
+            onDragOver={handleTableDragOver}
+            onDragLeave={handleTableDragLeave}
+            onDrop={handleTableDrop}
+          >
+            <p className="text-sm text-[var(--color-base-tertiary)]">
+              {tableDropHighlight ? "Drop here to add column" : "Drag fields from the right panel or click to add columns"}
+            </p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)]">
-            <table className="w-full">
+          <div
+            ref={tableScrollRef}
+            className={`overflow-x-auto rounded-xl border bg-[var(--color-base-surface-primary)] transition-colors ${
+              tableDropHighlight ? "border-[var(--color-brand-primary)] ring-2 ring-[var(--color-brand-primary)]/20" : "border-[var(--color-base-stroke)]"
+            }`}
+            onDragOver={handleTableDragOver}
+            onDragLeave={handleTableDragLeave}
+            onDrop={handleTableDrop}
+          >
+            <table className="w-full" style={{ tableLayout: "fixed" }}>
               <thead>
                 <tr className="border-b border-[var(--color-base-stroke)]">
-                  {selectedColumns.map((col) => (
-                    <th
-                      key={col.id}
-                      className={`h-8 px-3 text-left text-xs font-medium text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] ${TRANSITION}`}
-                      style={{ width: colWidth, minWidth: colWidth, opacity: tableOpacity }}
-                    >
-                      {col.label}
-                    </th>
-                  ))}
+                  {(() => {
+                    const order = getColOrder();
+                    return selectedColumns.map((col, colIdx) => {
+                      const visualPos = order.indexOf(colIdx);
+                      const isDragged = colDragFrom === colIdx;
+                      const insertShift = newColInsertIdx !== null && colIdx >= newColInsertIdx ? colWidth : 0;
+                      const reorderShift = colDragFrom !== null ? (visualPos - colIdx) * colWidth : 0;
+                      const totalShift = reorderShift + insertShift;
+                      const isAnimating = colDragFrom !== null || newColInsertIdx !== null;
+                      return (
+                        <th
+                          key={col.id}
+                          ref={el => { colThRefs.current[colIdx] = el; }}
+                          className={`group/col h-8 px-3 text-left text-xs font-medium text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] select-none`}
+                          style={{
+                            width: colWidth,
+                            minWidth: colWidth,
+                            opacity: isDragged ? 0.25 : tableOpacity,
+                            transform: isAnimating ? `translateX(${totalShift}px)` : undefined,
+                            transition: isAnimating && !isDragged && !colScrolling ? "transform 200ms ease, opacity 200ms ease" : "opacity 200ms ease",
+                            zIndex: isDragged ? 0 : 1,
+                          }}
+                        >
+                          <div className="flex items-center gap-1.5 w-full">
+                            {activeStep === 1 && (
+                              <div
+                                className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] hover:text-[var(--color-base-secondary)]"
+                                onPointerDown={(e) => handleColPointerDown(e, colIdx)}
+                                onPointerMove={handleColPointerMove}
+                                onPointerUp={handleColPointerUp}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                  <path d="M5 3H7V5H5V3ZM9 3H11V5H9V3ZM5 7H7V9H5V7ZM9 7H11V9H9V7ZM5 11H7V13H5V11ZM9 11H11V13H9V11Z" fill="currentColor"/>
+                                </svg>
+                              </div>
+                            )}
+                            <span className="flex-1 truncate">{col.label}</span>
+                            {activeStep === 1 && updateIntent && (
+                              <button
+                                type="button"
+                                className="shrink-0 p-0.5 rounded-full text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] opacity-0 group-hover/col:opacity-100 transition-opacity"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onClick={() => {
+                                  const next = selectedColumns.filter(c => c.id !== col.id);
+                                  updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: next } });
+                                }}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                                  <path d="M3.5 3.5L10.5 10.5M10.5 3.5L3.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        </th>
+                      );
+                    });
+                  })()}
                   {/* Actions header — slides in */}
                   <th
                     className={`sticky right-0 z-10 h-8 px-3 text-left text-xs font-medium text-[var(--color-base-primary)] bg-[var(--color-base-surface-secondary)] border-l-2 border-[var(--color-base-stroke)] whitespace-nowrap ${TRANSITION}`}
                     style={{
-                      maxWidth: showActions ? 200 : 0,
-                      width: showActions ? "auto" : 0,
+                      width: showActions ? actionsColWidth : 0,
+                      minWidth: showActions ? actionsColWidth : 0,
+                      maxWidth: showActions ? actionsColWidth : 0,
                       opacity: showActions ? 1 : 0,
                       padding: showActions ? undefined : 0,
                       borderLeftWidth: showActions ? 2 : 0,
@@ -2484,33 +3239,52 @@ function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activ
               <tbody>
                 {Array.from({ length: skeletonRows }).map((_, rowIdx) => (
                   <tr key={rowIdx} className="border-b border-[var(--color-base-stroke)] last:border-b-0">
-                    {selectedColumns.map((col) => (
-                      <td
-                        key={col.id}
-                        className={`px-3 ${TRANSITION}`}
-                        style={{ width: colWidth, minWidth: colWidth, height: 48, opacity: tableOpacity }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="h-2.5 rounded bg-[var(--color-base-stroke)] flex-1"
-                            style={{ width: `${55 + ((rowIdx * 17 + col.id.length * 13) % 35)}%` }}
-                          />
-                          {col.copyable && (
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[var(--color-base-tertiary)]">
-                              <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
-                              <path d="M11 5V3.5C11 2.67 10.33 2 9.5 2H3.5C2.67 2 2 2.67 2 3.5V9.5C2 10.33 2.67 11 3.5 11H5" stroke="currentColor" strokeWidth="1.5"/>
-                            </svg>
-                          )}
-                        </div>
-                      </td>
-                    ))}
+                    {(() => {
+                      const order = getColOrder();
+                      return selectedColumns.map((col, colIdx) => {
+                        const visualPos = order.indexOf(colIdx);
+                        const isDragged = colDragFrom === colIdx;
+                        const insertShift = newColInsertIdx !== null && colIdx >= newColInsertIdx ? colWidth : 0;
+                        const reorderShift = colDragFrom !== null ? (visualPos - colIdx) * colWidth : 0;
+                        const totalShift = reorderShift + insertShift;
+                        const isAnimating = colDragFrom !== null || newColInsertIdx !== null;
+                        return (
+                          <td
+                            key={col.id}
+                            className="px-3"
+                            style={{
+                              width: colWidth,
+                              minWidth: colWidth,
+                              height: 48,
+                              opacity: isDragged ? 0.25 : tableOpacity,
+                              transform: isAnimating ? `translateX(${totalShift}px)` : undefined,
+                              transition: isAnimating && !isDragged && !colScrolling ? "transform 200ms ease, opacity 200ms ease" : "opacity 200ms ease",
+                            }}
+                          >
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="h-2.5 rounded bg-[var(--color-base-stroke)] flex-1"
+                                style={{ width: `${30 + ((rowIdx * 37 + col.id.charCodeAt(0) * 13 + rowIdx * col.id.length * 7) % 55)}%` }}
+                              />
+                              {col.copyable && (
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[var(--color-base-tertiary)]">
+                                  <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                                  <path d="M11 5V3.5C11 2.67 10.33 2 9.5 2H3.5C2.67 2 2 2.67 2 3.5V9.5C2 10.33 2.67 11 3.5 11H5" stroke="currentColor" strokeWidth="1.5"/>
+                                </svg>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      });
+                    })()}
                     {/* Actions cells */}
                     <td
                       className={`sticky right-0 z-10 bg-[var(--color-base-surface-primary)] border-l-2 border-[var(--color-base-stroke)] ${TRANSITION}`}
                       style={{
                         height: 48,
-                        maxWidth: showActions ? 200 : 0,
-                        width: showActions ? "auto" : 0,
+                        width: showActions ? actionsColWidth : 0,
+                        minWidth: showActions ? actionsColWidth : 0,
+                        maxWidth: showActions ? actionsColWidth : 0,
                         opacity: showActions ? 1 : 0,
                         padding: showActions ? "0 12px" : 0,
                         borderLeftWidth: showActions ? 2 : 0,
@@ -2534,24 +3308,34 @@ function SmartTablePreview({ intent, activeStep }: { intent: WizardIntent; activ
           </div>
         )}
       </div>
+
+      {colDragFrom !== null && colGhostPos && createPortal(
+        <div
+          className="fixed z-[10002] pointer-events-none flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[var(--color-base-surface-primary)] border border-[var(--color-brand-primary)] shadow-lg text-xs font-medium text-[var(--color-base-primary)]"
+          style={{ left: colGhostPos.x, top: colGhostPos.y, transform: "translate(-50%, -50%)" }}
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
+            <path d="M5 3H7V5H5V3ZM9 3H11V5H9V3ZM5 7H7V9H5V7ZM9 7H11V9H9V7ZM5 11H7V13H5V11ZM9 11H11V13H9V11Z" fill="currentColor"/>
+          </svg>
+          {colGhostLabel}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
 
 function StepGenericPreview({ step, intent }: { step: number; intent: WizardIntent }) {
   const stepTitles: Record<number, string> = {
-    1: "Page structure",
-    2: "Table columns",
-    3: "Filters",
-    4: "Actions",
-    5: "Summary",
+    0: "Page structure",
+    1: "Table columns",
+    2: "Filters",
+    3: "Actions",
+    4: "Summary",
   };
   return (
     <div className="h-full flex flex-col items-center justify-center rounded-xl p-6 bg-transparent">
-      <p className="text-sm text-[var(--color-base-secondary)] uppercase tracking-wider">
-        Preview
-      </p>
-      <p className="text-lg font-medium text-[var(--color-base-primary)] mt-2">
+      <p className="text-lg font-medium text-[var(--color-base-primary)]">
         {stepTitles[step] ?? `Step ${step + 1}`}
       </p>
       <p className="text-sm text-[var(--color-base-tertiary)] mt-1">
@@ -2644,21 +3428,28 @@ function migrateSectionItems(cfg: Record<string, unknown> | undefined): SectionI
 }
 
 // Palette items for drag-and-drop onto Preview
-const PALETTE_ITEMS = [
-  { type: "input", label: "Text Field", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-  { type: "select", label: "Select", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M11 7.5L13 9.5L11 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-  { type: "date-time", label: "Date Picker", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2 7.5H16M5.5 1V4M12.5 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-  { type: "number", label: "Number", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 7.5H11M11 7.5V11.5M11 7.5L7 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-  { type: "textarea", label: "Textarea", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="2" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 6H13M5 9H13M5 12H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-  { type: "action", label: "Button", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="5" width="14" height="8" rx="4" stroke="currentColor" strokeWidth="1.5"/><path d="M7 9H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+const DRAG_HANDLE_ICON = <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0 text-[var(--color-base-tertiary)]"><circle cx="6" cy="4" r="1" fill="currentColor"/><circle cx="10" cy="4" r="1" fill="currentColor"/><circle cx="6" cy="8" r="1" fill="currentColor"/><circle cx="10" cy="8" r="1" fill="currentColor"/><circle cx="6" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="12" r="1" fill="currentColor"/></svg>;
+
+const FIELD_PALETTE_ITEMS = [
+  { type: "input", label: "Text Field", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="8" y="11" width="1.5" height="6" rx="0.75" fill="currentColor"/></svg> },
+  { type: "select", label: "Dropdown", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><path d="M20 13L18 15L16 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "date-time", label: "Date Picker", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="5.75" y="6.75" width="16.5" height="14.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="23" y="10" width="1.5" height="18" rx="0.75" transform="rotate(90 23 10)" fill="currentColor"/><rect x="10" y="9" width="1.5" height="5" rx="0.75" transform="rotate(-180 10 9)" fill="currentColor"/><rect x="19" y="9" width="1.5" height="5" rx="0.75" transform="rotate(-180 19 9)" fill="currentColor"/></svg> },
+  { type: "number", label: "Number Field", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><path d="M10.657 13.5107V14.4652C10.657 14.9225 10.6136 15.3128 10.5268 15.6364C10.4426 15.9572 10.32 16.2179 10.1592 16.4184C9.99836 16.619 9.80562 16.766 9.58096 16.8596C9.35886 16.9532 9.10996 17 8.83425 17C8.6147 17 8.41047 16.9706 8.22155 16.9118C8.03519 16.8529 7.8667 16.7607 7.71608 16.635C7.56546 16.5094 7.43654 16.3476 7.32932 16.1497C7.22465 15.9492 7.14296 15.7099 7.08425 15.4318C7.02808 15.1537 7 14.8316 7 14.4652V13.5107C7 13.0508 7.0434 12.6631 7.1302 12.3476C7.21699 12.0294 7.34081 11.7714 7.50164 11.5735C7.66247 11.373 7.85394 11.2273 8.07604 11.1364C8.30069 11.0455 8.55088 11 8.82659 11C9.04869 11 9.25292 11.0294 9.43928 11.0882C9.62819 11.1444 9.79668 11.234 9.94475 11.357C10.0954 11.4799 10.223 11.6404 10.3277 11.8382C10.4349 12.0334 10.5166 12.2701 10.5728 12.5481C10.6289 12.8235 10.657 13.1444 10.657 13.5107ZM9.73414 14.6016V13.3663C9.73414 13.1337 9.72137 12.9291 9.69584 12.7527C9.67031 12.5735 9.63202 12.4225 9.58096 12.2995C9.53246 12.1738 9.47119 12.0722 9.39716 11.9947C9.32312 11.9144 9.23888 11.857 9.14442 11.8222C9.04996 11.7848 8.94402 11.766 8.82659 11.766C8.68363 11.766 8.55598 11.7955 8.44365 11.8543C8.33133 11.9104 8.23687 12.0013 8.16028 12.127C8.0837 12.2527 8.02498 12.4184 7.98414 12.6243C7.94584 12.8275 7.9267 13.0749 7.9267 13.3663V14.6016C7.9267 14.8369 7.93946 15.0441 7.96499 15.2233C7.99052 15.4024 8.02881 15.5561 8.07987 15.6845C8.13093 15.8102 8.1922 15.9144 8.26368 15.9973C8.33771 16.0775 8.42195 16.1364 8.51641 16.1738C8.61342 16.2112 8.71937 16.2299 8.83425 16.2299C8.97976 16.2299 9.10868 16.2005 9.22101 16.1417C9.33333 16.0829 9.42779 15.9893 9.50438 15.861C9.58096 15.7299 9.6384 15.5602 9.6767 15.3516C9.71499 15.143 9.73414 14.893 9.73414 14.6016Z" fill="currentColor"/><path d="M14 11.0602V16.9198H13.0771V12.2072L11.7101 12.6925V11.8944L13.8889 11.0602H14Z" fill="currentColor"/></svg> },
+  { type: "textarea", label: "Text Area", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="5.75" y="6.75" width="16.5" height="14.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="20" y="10" width="1.5" height="12" rx="0.75" transform="rotate(90 20 10)" fill="currentColor"/><rect x="20" y="13" width="1.5" height="12" rx="0.75" transform="rotate(90 20 13)" fill="currentColor"/><rect x="14" y="16" width="1.5" height="6" rx="0.75" transform="rotate(90 14 16)" fill="currentColor"/></svg> },
 ];
+
+const OTHER_PALETTE_ITEMS = [
+  { type: "action", label: "Button", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="17" y="13" width="1.5" height="6" rx="0.75" transform="rotate(90 17 13)" fill="currentColor"/></svg> },
+];
+
+const PALETTE_ITEMS = [...FIELD_PALETTE_ITEMS, ...OTHER_PALETTE_ITEMS];
 
 // Step 1: Create Page (P-03) — tabbed: Properties Panel + Content Sections
 function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepProps & { activeTab: "sections" | "properties"; setActiveTab: (tab: "sections" | "properties") => void }) {
   const config = intent.createPageConfig;
   const selectedType = config.sections[0]?.type ?? null;
   const section = config.sections[0];
-  const sectionConfig = section?.config as { items?: SectionItem[]; fields?: Array<Record<string, unknown>>; customActions?: Array<Record<string, unknown>>; actions?: string[]; titleField?: string; addLabel?: string; hasStatusToggle?: boolean; enableReorder?: boolean } | undefined;
+  const sectionConfig = section?.config as { items?: SectionItem[]; fields?: Array<Record<string, unknown>>; customActions?: Array<Record<string, unknown>>; actions?: string[]; titleField?: string; addLabel?: string; hasStatusToggle?: boolean; enableReorder?: boolean; allowTitleEditing?: boolean } | undefined;
   const accordionActions = sectionConfig?.actions ?? ["copy", "delete"];
   const enableReorder = sectionConfig?.enableReorder !== false;
 
@@ -2698,105 +3489,53 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
 
   return (
     <div className="space-y-6">
-      {/* ── General ── */}
+      {/* ── Main Section settings ── */}
       <div className="space-y-4 px-4">
-        <p className="text-lg font-medium text-[var(--color-base-primary)]">General</p>
-
-        {/* Tabs: Main Section / Details */}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setActiveTab("sections")}
-            className={`flex-1 text-center text-paragraph-2 font-medium py-1 rounded-lg transition-colors ${
-              activeTab === "sections"
-                ? "bg-[var(--color-brand-primary)] text-white"
-                : "bg-black/[0.04] text-[var(--color-base-primary)]"
-            }`}
-          >
-            Main Section
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("properties")}
-            className={`flex-1 text-center text-paragraph-2 font-medium py-1 rounded-lg transition-colors ${
-              activeTab === "properties"
-                ? "bg-[var(--color-brand-primary)] text-white"
-                : "bg-black/[0.04] text-[var(--color-base-primary)]"
-            }`}
-          >
-            Details
-          </button>
-        </div>
-
         {activeTab === "sections" && (
           <>
-            {/* Select Layout */}
+            {/* Layout */}
             <div className="space-y-2">
-              <p className="text-sm font-medium text-[var(--color-base-primary)]">Select Layout</p>
+              <p className="text-sm font-medium text-[var(--color-base-primary)]">Layout</p>
               <div className="flex gap-2">
                 {/* Accordions */}
                 <button
                   type="button"
                   onClick={() => selectPattern("accordion-list")}
-                  className={`flex-1 flex flex-col items-center py-2 rounded-2xl border transition-colors ${
+                  className={`w-[102px] shrink-0 flex flex-col items-center py-2 rounded-2xl border transition-colors ${
                     selectedType === "accordion-list"
-                      ? "border-[var(--color-brand-primary)]"
+                      ? "border-[var(--color-base-primary)]"
                       : "border-transparent"
                   }`}
                 >
                   <div className="h-16 w-full flex flex-col items-center justify-center gap-1">
-                    <div className={`h-4 w-12 rounded-sm ${selectedType === "accordion-list" ? "bg-[var(--color-brand-primary)]" : "bg-black/10"}`} />
-                    <div className={`h-2 w-12 rounded-sm ${selectedType === "accordion-list" ? "bg-[var(--color-brand-primary)]" : "bg-black/10"}`} />
-                    <div className={`h-2 w-12 rounded-sm ${selectedType === "accordion-list" ? "bg-[var(--color-brand-primary)]" : "bg-black/10"}`} />
+                    <div className={`h-4 w-12 rounded-sm ${selectedType === "accordion-list" ? "bg-[var(--color-base-primary)]" : "bg-black/10"}`} />
+                    <div className={`h-2 w-12 rounded-sm ${selectedType === "accordion-list" ? "bg-[var(--color-base-primary)]" : "bg-black/10"}`} />
+                    <div className={`h-2 w-12 rounded-sm ${selectedType === "accordion-list" ? "bg-[var(--color-base-primary)]" : "bg-black/10"}`} />
                   </div>
-                  <span className={`text-xs font-bold ${selectedType === "accordion-list" ? "text-[var(--color-brand-primary)]" : "text-[var(--color-base-primary)]"}`}>
+                  <span className="text-xs font-bold text-[var(--color-base-primary)]">
                     Accordion
                   </span>
                 </button>
                 {/* List + Details */}
-                <div className="flex-1 flex flex-col items-center py-2 rounded-2xl opacity-40 relative">
+                <div className="w-[102px] shrink-0 flex flex-col items-center py-2 rounded-2xl relative">
                   <div className="h-16 w-full flex items-center justify-center gap-1">
                     <div className="h-9 w-4 rounded-sm bg-black/10" />
                     <div className="h-9 w-8 rounded-sm bg-black/10" />
                   </div>
-                  <span className="text-xs text-[var(--color-base-primary)]">List + Details</span>
-                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[10px] bg-[var(--color-base-stroke)] text-[var(--color-base-secondary)] px-1 rounded">In Progress</span>
+                  <span className="text-xs text-[var(--color-base-secondary)]">List + Details</span>
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] bg-[var(--color-base-stroke)] text-[var(--color-base-secondary)] px-1.5 py-0.5 rounded">In Progress</span>
                 </div>
                 {/* Simple List */}
-                <div className="flex-1 flex flex-col items-center py-2 rounded-2xl opacity-40 relative">
+                <div className="w-[102px] shrink-0 flex flex-col items-center py-2 rounded-2xl relative">
                   <div className="h-16 w-full flex items-center justify-center">
                     <div className="h-9 w-12 rounded-sm bg-black/10" />
                   </div>
-                  <span className="text-xs text-[var(--color-base-primary)]">Simple List</span>
-                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[10px] bg-[var(--color-base-stroke)] text-[var(--color-base-secondary)] px-1 rounded">In Progress</span>
+                  <span className="text-xs text-[var(--color-base-secondary)]">Simple Form</span>
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] bg-[var(--color-base-stroke)] text-[var(--color-base-secondary)] px-1.5 py-0.5 rounded">In Progress</span>
                 </div>
               </div>
             </div>
 
-            {/* Checkboxes: Show Toolbar, Save Button, Save & Exit Button */}
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)]">
-                <WizardCheckbox
-                  checked={config.showToolbar}
-                  onChange={() => updateIntent({ createPageConfig: { ...config, showToolbar: !config.showToolbar } })}
-                />
-                Show Toolbar
-              </label>
-              <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)]">
-                <WizardCheckbox
-                  checked={config.saveChanges}
-                  onChange={() => updateIntent({ createPageConfig: { ...config, saveChanges: !config.saveChanges } })}
-                />
-                Save Button
-              </label>
-              <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)]">
-                <WizardCheckbox
-                  checked={config.saveAndClose}
-                  onChange={() => updateIntent({ createPageConfig: { ...config, saveAndClose: !config.saveAndClose } })}
-                />
-                Save &amp; Exit Button
-              </label>
-            </div>
           </>
         )}
 
@@ -2811,72 +3550,77 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
 
       {activeTab === "sections" && selectedType === "accordion-list" && (
         <>
-          {/* ── Separator ── */}
-          <div className="h-px bg-[var(--color-base-stroke)]" />
-
-          {/* ── Accordion Settings ── */}
           <div className="space-y-4 px-4">
-            <p className="text-lg font-medium text-[var(--color-base-primary)]">Accordion Settings</p>
-
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)]">
-                <WizardCheckbox checked={enableReorder} onChange={() => updateSectionConfig({ enableReorder: !enableReorder })} />
-                Enable Sections Reordering
-              </label>
-              <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)]">
-                <WizardCheckbox
-                  checked={accordionActions.includes("copy")}
-                  onChange={() => toggleAccordionAction("copy")}
-                />
-                Duplicate
-              </label>
-              <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)]">
-                <WizardCheckbox
-                  checked={accordionActions.includes("delete")}
-                  onChange={() => toggleAccordionAction("delete")}
-                />
-                Delete
-              </label>
+            {/* Fields */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-[var(--color-base-primary)]">Fields</p>
+              <div className="flex flex-wrap gap-2">
+                {FIELD_PALETTE_ITEMS.map((pi) => (
+                  <div
+                    key={pi.type}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                      if (pi.type === "textarea") e.dataTransfer.setData("palette-is-textarea", "1");
+                      e.dataTransfer.effectAllowed = "copy";
+                      const el = e.currentTarget as HTMLElement;
+                      const elRect = el.getBoundingClientRect();
+                      const clone = el.cloneNode(true) as HTMLElement;
+                      clone.style.width = `${el.offsetWidth}px`;
+                      clone.style.position = "absolute";
+                      clone.style.top = "-9999px";
+                      clone.style.left = "-9999px";
+                      clone.style.opacity = "0.9";
+                      document.body.appendChild(clone);
+                      e.dataTransfer.setDragImage(clone, e.clientX - elRect.left, e.clientY - elRect.top);
+                      requestAnimationFrame(() => clone.remove());
+                    }}
+                    className="flex items-center gap-2 h-11 pl-2.5 pr-2 rounded-[16px] bg-[var(--color-base-surface-secondary)] cursor-grab active:cursor-grabbing hover:bg-[var(--color-base-stroke)] transition-colors select-none"
+                  >
+                    <span className="shrink-0 size-7 flex items-center justify-center text-[var(--color-base-secondary)]">
+                      {pi.icon}
+                    </span>
+                    <span className="text-sm font-medium text-[var(--color-base-primary)] whitespace-nowrap">{pi.label}</span>
+                    {DRAG_HANDLE_ICON}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="mt-4 space-y-1">
-              <p className="text-base font-medium text-[var(--color-base-primary)]">Components</p>
-              <p className="text-xs text-[var(--color-base-secondary)]">Drag components to the Preview area</p>
-            </div>
-
-            {/* Component palette */}
-            <div className="grid grid-cols-2 gap-2">
-              {PALETTE_ITEMS.map((pi) => (
-                <div
-                  key={pi.type}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
-                    if (pi.type === "action") e.dataTransfer.setData("palette-is-action", "1");
-                    if (pi.type === "textarea") e.dataTransfer.setData("palette-is-textarea", "1");
-                    e.dataTransfer.effectAllowed = "copy";
-                    const el = e.currentTarget as HTMLElement;
-                    const elRect = el.getBoundingClientRect();
-                    const cursorX = e.clientX - elRect.left;
-                    const cursorY = e.clientY - elRect.top;
-                    const clone = el.cloneNode(true) as HTMLElement;
-                    clone.style.width = `${el.offsetWidth}px`;
-                    clone.style.position = "absolute";
-                    clone.style.top = "-9999px";
-                    clone.style.left = "-9999px";
-                    clone.style.opacity = "0.9";
-                    document.body.appendChild(clone);
-                    e.dataTransfer.setDragImage(clone, cursorX, cursorY);
-                    requestAnimationFrame(() => clone.remove());
-                  }}
-                  className="flex items-center gap-2.5 px-3 py-3 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] cursor-grab active:cursor-grabbing hover:border-[var(--color-base-tertiary)] hover:shadow-sm transition-all select-none"
-                >
-                  <span className="shrink-0 size-8 flex items-center justify-center rounded-lg bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)]">
-                    {pi.icon}
-                  </span>
-                  <span className="text-sm font-medium text-[var(--color-base-primary)]">{pi.label}</span>
-                </div>
-              ))}
+            {/* Other */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-[var(--color-base-primary)]">Other</p>
+              <div className="flex flex-wrap gap-2">
+                {OTHER_PALETTE_ITEMS.map((pi) => (
+                  <div
+                    key={pi.type}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                      if (pi.type === "action") e.dataTransfer.setData("palette-is-action", "1");
+                      e.dataTransfer.effectAllowed = "copy";
+                      const el = e.currentTarget as HTMLElement;
+                      const elRect = el.getBoundingClientRect();
+                      const clone = el.cloneNode(true) as HTMLElement;
+                      clone.style.width = `${el.offsetWidth}px`;
+                      clone.style.position = "absolute";
+                      clone.style.top = "-9999px";
+                      clone.style.left = "-9999px";
+                      clone.style.opacity = "0.9";
+                      document.body.appendChild(clone);
+                      e.dataTransfer.setDragImage(clone, e.clientX - elRect.left, e.clientY - elRect.top);
+                      requestAnimationFrame(() => clone.remove());
+                    }}
+                    className="flex items-center gap-2 h-11 pl-2.5 pr-2 rounded-[16px] bg-[var(--color-base-surface-secondary)] cursor-grab active:cursor-grabbing hover:bg-[var(--color-base-stroke)] transition-colors select-none"
+                  >
+                    <span className="shrink-0 size-7 flex items-center justify-center text-[var(--color-base-secondary)]">
+                      {pi.icon}
+                    </span>
+                    <span className="text-sm font-medium text-[var(--color-base-primary)] whitespace-nowrap">{pi.label}</span>
+                    {DRAG_HANDLE_ICON}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </>
@@ -3249,64 +3993,85 @@ function detailsItemsToSections(items: DetailsItem[]): CreatePageConfig["propert
   return sections;
 }
 
-const DETAILS_PALETTE_ITEMS = [
-  { type: "input", label: "Text Field", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 7V11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-  { type: "select", label: "Select", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M11 7.5L13 9.5L11 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-  { type: "date-time", label: "Date Picker", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="13" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M2 7.5H16M5.5 1V4M12.5 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-  { type: "number", label: "Number", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="4" width="16" height="10" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M7 7.5H11M11 7.5V11.5M11 7.5L7 11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
-  { type: "textarea", label: "Textarea", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="1" y="2" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M5 6H13M5 9H13M5 12H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-  { type: "action", label: "Button", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="5" width="14" height="8" rx="4" stroke="currentColor" strokeWidth="1.5"/><path d="M7 9H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
-  { type: "section", label: "Section Title", icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 5H15M3 9H11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+const DETAILS_OTHER_PALETTE_ITEMS = [
+  { type: "action", label: "Button", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="17" y="13" width="1.5" height="6" rx="0.75" transform="rotate(90 17 13)" fill="currentColor"/></svg> },
+  { type: "section", label: "Section", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M6 10H22M6 14H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
 ];
+
+const DETAILS_PALETTE_ITEMS = [...FIELD_PALETTE_ITEMS, ...DETAILS_OTHER_PALETTE_ITEMS];
 
 function PropertiesEditor({ config, updateIntent, intent, hoveredFieldId, onHoverField }: { config: CreatePageConfig; updateIntent: StepProps["updateIntent"]; intent: WizardIntent; hoveredFieldId?: string | null; onHoverField?: (id: string | null) => void }) {
 
   return (
-    <div className="space-y-4 px-4">
-      {/* Toggles */}
-      <div className="flex items-center gap-6">
-        <label className="flex items-center gap-2 text-paragraph-2 font-medium text-[var(--color-base-primary)] opacity-50 pointer-events-none">
-          <WizardCheckbox checked={config.propertiesPanel.statusToggle} onChange={() => {}} />
-          Status Toggle
-        </label>
+    <div className="space-y-4">
+      {/* Fields */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--color-base-primary)]">Fields</p>
+        <div className="flex flex-wrap gap-2">
+          {FIELD_PALETTE_ITEMS.map((pi) => (
+            <div
+              key={pi.type}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("details-palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                e.dataTransfer.effectAllowed = "copy";
+                const el = e.currentTarget as HTMLElement;
+                const elRect = el.getBoundingClientRect();
+                const clone = el.cloneNode(true) as HTMLElement;
+                clone.style.width = `${el.offsetWidth}px`;
+                clone.style.position = "absolute";
+                clone.style.top = "-9999px";
+                clone.style.left = "-9999px";
+                clone.style.opacity = "0.9";
+                document.body.appendChild(clone);
+                e.dataTransfer.setDragImage(clone, e.clientX - elRect.left, e.clientY - elRect.top);
+                requestAnimationFrame(() => clone.remove());
+              }}
+              className="flex items-center gap-2 h-11 pl-2.5 pr-2 rounded-[16px] bg-[var(--color-base-surface-secondary)] cursor-grab active:cursor-grabbing hover:bg-[var(--color-base-stroke)] transition-colors select-none"
+            >
+              <span className="shrink-0 size-7 flex items-center justify-center text-[var(--color-base-secondary)]">
+                {pi.icon}
+              </span>
+              <span className="text-sm font-medium text-[var(--color-base-primary)] whitespace-nowrap">{pi.label}</span>
+              {DRAG_HANDLE_ICON}
+            </div>
+          ))}
+        </div>
       </div>
 
-      <div className="space-y-1">
-        <p className="text-base font-medium text-[var(--color-base-primary)]">Components</p>
-        <p className="text-xs text-[var(--color-base-secondary)]">Drag components to the Details panel</p>
-      </div>
-
-      {/* Component palette */}
-      <div className="grid grid-cols-2 gap-2">
-        {DETAILS_PALETTE_ITEMS.map((pi) => (
-          <div
-            key={pi.type}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.setData("details-palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
-              e.dataTransfer.effectAllowed = "copy";
-              const el = e.currentTarget as HTMLElement;
-              const elRect = el.getBoundingClientRect();
-              const cursorX = e.clientX - elRect.left;
-              const cursorY = e.clientY - elRect.top;
-              const clone = el.cloneNode(true) as HTMLElement;
-              clone.style.width = `${el.offsetWidth}px`;
-              clone.style.position = "absolute";
-              clone.style.top = "-9999px";
-              clone.style.left = "-9999px";
-              clone.style.opacity = "0.9";
-              document.body.appendChild(clone);
-              e.dataTransfer.setDragImage(clone, cursorX, cursorY);
-              requestAnimationFrame(() => clone.remove());
-            }}
-            className="flex items-center gap-2.5 px-3 py-3 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] cursor-grab active:cursor-grabbing hover:border-[var(--color-base-tertiary)] hover:shadow-sm transition-all select-none"
-          >
-            <span className="shrink-0 size-8 flex items-center justify-center rounded-lg bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)]">
-              {pi.icon}
-            </span>
-            <span className="text-sm font-medium text-[var(--color-base-primary)]">{pi.label}</span>
-          </div>
-        ))}
+      {/* Other */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--color-base-primary)]">Other</p>
+        <div className="flex flex-wrap gap-2">
+          {DETAILS_OTHER_PALETTE_ITEMS.map((pi) => (
+            <div
+              key={pi.type}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("details-palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                e.dataTransfer.effectAllowed = "copy";
+                const el = e.currentTarget as HTMLElement;
+                const elRect = el.getBoundingClientRect();
+                const clone = el.cloneNode(true) as HTMLElement;
+                clone.style.width = `${el.offsetWidth}px`;
+                clone.style.position = "absolute";
+                clone.style.top = "-9999px";
+                clone.style.left = "-9999px";
+                clone.style.opacity = "0.9";
+                document.body.appendChild(clone);
+                e.dataTransfer.setDragImage(clone, e.clientX - elRect.left, e.clientY - elRect.top);
+                requestAnimationFrame(() => clone.remove());
+              }}
+              className="flex items-center gap-2 h-11 pl-2.5 pr-2 rounded-[16px] bg-[var(--color-base-surface-secondary)] cursor-grab active:cursor-grabbing hover:bg-[var(--color-base-stroke)] transition-colors select-none"
+            >
+              <span className="shrink-0 size-7 flex items-center justify-center text-[var(--color-base-secondary)]">
+                {pi.icon}
+              </span>
+              <span className="text-sm font-medium text-[var(--color-base-primary)] whitespace-nowrap">{pi.label}</span>
+              {DRAG_HANDLE_ICON}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -3327,6 +4092,8 @@ function getDefaultSectionConfig(type: string): Record<string, unknown> {
         addLabel: "+ Add Item",
         hasStatusToggle: false,
         actions: ["copy", "delete"],
+        enableReorder: true,
+        allowTitleEditing: true,
         items: [
           { id: "field-1", kind: "field", label: "Title", type: "input", required: false },
           { id: "field-2", kind: "field", label: "ID", type: "input", required: false, readOnly: true, autoGenerated: true },
@@ -3416,86 +4183,228 @@ function StepTableColumns({ intent, updateIntent }: StepProps) {
     }
   };
 
-  const toggleCopyable = (fieldId: string) => {
-    setColumns(tableColumns.map(f => f.id === fieldId ? { ...f, copyable: !f.copyable } : f));
-  };
+  const availableFields = orderedFields.filter(f => !isSelected(f.id));
 
-  const canBeCopyable = (field: FieldRef): boolean => {
-    if (!field || !field.id) return false;
-    return field.id === "id" || field.id === "title" || field.dataType === "id" || field.dataType === "string";
-  };
+  const [chipDragId, setChipDragId] = useState<string | null>(null);
+  const chipContainerRef = useRef<HTMLDivElement>(null);
+  const chipGhostRef = useRef<HTMLDivElement>(null);
+  const chipOutsideRef = useRef(false);
+  const chipDropRef = useRef<{ targetId: string; side: "before" | "after" } | null>(null);
+  const chipIndicatorElRef = useRef<HTMLElement | null>(null);
+  const chipDragRef = useRef<{
+    fieldId: string;
+    startX: number;
+    startY: number;
+    active: boolean;
+  } | null>(null);
 
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-
-  const handleDragStart = (e: React.DragEvent, index: number) => {
-    e.dataTransfer.setData("text/plain", String(index));
-    e.dataTransfer.effectAllowed = "move";
-  };
-
-  const handleDrop = (e: React.DragEvent, toIndex: number) => {
-    e.preventDefault();
-    setDragOverIdx(null);
-    const fromIndex = Number(e.dataTransfer.getData("text/plain"));
-    if (!isNaN(fromIndex) && fromIndex !== toIndex) {
-      const next = [...orderedFields];
-      const [removed] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, removed);
-      const selected = next.filter(f => isSelected(f.id)).map(f => {
-        const existing = tableColumns.find(tc => tc.id === f.id);
-        return existing || f;
-      });
-      setColumns(selected);
+  const clearChipIndicator = useCallback(() => {
+    const prev = chipIndicatorElRef.current;
+    if (prev) {
+      prev.style.boxShadow = "";
+      chipIndicatorElRef.current = null;
     }
-  };
+    chipDropRef.current = null;
+  }, []);
+
+  const handleChipPointerDown = useCallback((e: React.PointerEvent, fieldId: string) => {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    chipDragRef.current = { fieldId, startX: e.clientX, startY: e.clientY, active: false };
+  }, []);
+
+  const handleChipPointerMove = useCallback((e: React.PointerEvent) => {
+    const info = chipDragRef.current;
+    if (!info) return;
+    if (!info.active) {
+      const d = Math.hypot(e.clientX - info.startX, e.clientY - info.startY);
+      if (d < 4) return;
+      info.active = true;
+      setChipDragId(info.fieldId);
+    }
+
+    const ghost = chipGhostRef.current;
+    if (ghost) {
+      ghost.style.left = e.clientX + "px";
+      ghost.style.top = e.clientY + "px";
+    }
+
+    const container = chipContainerRef.current;
+    if (!container) return;
+    const cRect = container.getBoundingClientRect();
+    const isOutside = e.clientX < cRect.left - 40 || e.clientX > cRect.right + 40 ||
+                      e.clientY < cRect.top - 40 || e.clientY > cRect.bottom + 40;
+
+    if (isOutside !== chipOutsideRef.current) {
+      chipOutsideRef.current = isOutside;
+      if (ghost) {
+        ghost.dataset.outside = isOutside ? "1" : "";
+      }
+    }
+
+    if (isOutside) {
+      clearChipIndicator();
+      return;
+    }
+
+    let found = false;
+    const els = Array.from(container.children) as HTMLElement[];
+    for (const el of els) {
+      const id = el.dataset.chipId;
+      if (!id || id === info.fieldId) continue;
+      const r = el.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
+        const side: "before" | "after" = e.clientX < r.left + r.width / 2 ? "before" : "after";
+        if (chipDropRef.current?.targetId === id && chipDropRef.current?.side === side) {
+          found = true;
+          break;
+        }
+        clearChipIndicator();
+        chipDropRef.current = { targetId: id, side };
+        chipIndicatorElRef.current = el;
+        const color = "var(--color-brand-primary, #f472b6)";
+        el.style.boxShadow = side === "before"
+          ? `inset 3px 0 0 ${color}`
+          : `inset -3px 0 0 ${color}`;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      clearChipIndicator();
+    }
+  }, [clearChipIndicator]);
+
+  const handleChipPointerUp = useCallback(() => {
+    const info = chipDragRef.current;
+    chipDragRef.current = null;
+    if (info?.active) {
+      if (chipOutsideRef.current) {
+        setColumns(tableColumns.filter(c => c.id !== info.fieldId));
+      } else if (chipDropRef.current) {
+        const { targetId, side } = chipDropRef.current;
+        const fromIdx = tableColumns.findIndex(c => c.id === info.fieldId);
+        let toIdx = tableColumns.findIndex(c => c.id === targetId);
+        if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
+          const next = [...tableColumns];
+          const [removed] = next.splice(fromIdx, 1);
+          const insertAt = toIdx > fromIdx ? toIdx - 1 : toIdx;
+          const finalIdx = side === "after" ? insertAt + 1 : insertAt;
+          next.splice(finalIdx, 0, removed);
+          setColumns(next);
+        }
+      }
+    }
+    clearChipIndicator();
+    chipOutsideRef.current = false;
+    setChipDragId(null);
+  }, [tableColumns, setColumns, clearChipIndicator]);
 
   return (
-    <div className="space-y-4 px-4">
-      <p className="text-sm font-medium text-[var(--color-base-primary)]">Available Fields</p>
+    <div className="space-y-6 px-4">
+      {/* Selected (in table) */}
+      {tableColumns.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-[var(--color-base-primary)]">In Table</p>
+          <div ref={chipContainerRef} className="flex flex-wrap gap-2">
+            {tableColumns.map((field) => {
+              const isDragged = chipDragId === field.id;
+              return (
+                <div
+                  key={field.id}
+                  data-chip-id={field.id}
+                  className={`flex items-center gap-2 h-11 pl-2.5 pr-2 rounded-[16px] bg-[var(--color-brand-primary)]/10 select-none transition-opacity duration-150 ${
+                    isDragged ? "opacity-25" : "opacity-100"
+                  }`}
+                >
+                  <div
+                    className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-brand-primary)] opacity-40"
+                    onPointerDown={(e) => handleChipPointerDown(e, field.id)}
+                    onPointerMove={handleChipPointerMove}
+                    onPointerUp={handleChipPointerUp}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <circle cx="6" cy="4" r="1" fill="currentColor"/><circle cx="10" cy="4" r="1" fill="currentColor"/><circle cx="6" cy="8" r="1" fill="currentColor"/><circle cx="10" cy="8" r="1" fill="currentColor"/><circle cx="6" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="12" r="1" fill="currentColor"/>
+                    </svg>
+                  </div>
+                  <span className="text-sm font-medium text-[var(--color-brand-primary)] whitespace-nowrap">{field.label}</span>
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); toggleField(field); }}
+                    className="shrink-0 p-0.5 rounded-full text-[var(--color-brand-primary)] opacity-50 hover:opacity-100 transition-opacity"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M3.5 3.5L10.5 10.5M10.5 3.5L3.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
 
-      <div className="space-y-2 -mx-2">
-        {orderedFields.map((field, index) => (
-          <div
-            key={field.id}
-            className={`flex items-center gap-3 py-3 px-2 rounded-lg transition-colors ${dragOverIdx === index ? "bg-[var(--color-brand-primary)]/10" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); setDragOverIdx(index); }}
-            onDragLeave={() => setDragOverIdx(null)}
-            onDrop={(e) => handleDrop(e, index)}
-          >
+          {chipDragId !== null && createPortal(
             <div
-              draggable
-              onDragStart={(e) => handleDragStart(e, index)}
-              onDragEnd={() => setDragOverIdx(null)}
-              className="shrink-0 text-[var(--color-base-tertiary)] cursor-grab active:cursor-grabbing touch-none"
+              ref={chipGhostRef}
+              data-outside=""
+              className="fixed z-[10002] pointer-events-none flex items-center gap-2 h-11 pl-2.5 pr-3 rounded-[16px] shadow-lg text-sm font-medium border data-[outside='1']:border-red-400/40 data-[outside='1']:bg-red-400/15 data-[outside='1']:text-red-500 bg-[var(--color-brand-primary)]/15 border-[var(--color-brand-primary)]/40 text-[var(--color-brand-primary)]"
+              style={{
+                left: -9999,
+                top: -9999,
+                transform: "translate(-50%, -50%)",
+              }}
             >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M5 3H7V5H5V3ZM9 3H11V5H9V3ZM5 7H7V9H5V7ZM9 7H11V9H9V7ZM5 11H7V13H5V11ZM9 11H11V13H9V11Z" fill="currentColor"/>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0, opacity: 0.4 }}>
+                <circle cx="6" cy="4" r="1" fill="currentColor"/><circle cx="10" cy="4" r="1" fill="currentColor"/><circle cx="6" cy="8" r="1" fill="currentColor"/><circle cx="10" cy="8" r="1" fill="currentColor"/><circle cx="6" cy="12" r="1" fill="currentColor"/><circle cx="10" cy="12" r="1" fill="currentColor"/>
               </svg>
+              <span>{tableColumns.find(c => c.id === chipDragId)?.label ?? ""}</span>
+            </div>,
+            document.body
+          )}
+        </div>
+      )}
+
+      {/* Available (not in table) */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--color-base-primary)]">Available Fields</p>
+        <div className="flex flex-wrap gap-2">
+          {availableFields.map((field) => (
+            <div
+              key={field.id}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("table-field", JSON.stringify(field));
+                e.dataTransfer.effectAllowed = "copy";
+                const el = e.currentTarget as HTMLElement;
+                const elRect = el.getBoundingClientRect();
+                const clone = el.cloneNode(true) as HTMLElement;
+                clone.style.width = `${el.offsetWidth}px`;
+                clone.style.position = "absolute";
+                clone.style.top = "-9999px";
+                clone.style.left = "-9999px";
+                clone.style.opacity = "0.9";
+                document.body.appendChild(clone);
+                e.dataTransfer.setDragImage(clone, e.clientX - elRect.left, e.clientY - elRect.top);
+                requestAnimationFrame(() => clone.remove());
+              }}
+              onClick={() => toggleField(field)}
+              className="flex items-center gap-2 h-11 pl-2.5 pr-3 rounded-[16px] bg-[var(--color-base-surface-secondary)] cursor-grab active:cursor-grabbing hover:bg-[var(--color-base-stroke)] transition-colors select-none"
+            >
+              {DRAG_HANDLE_ICON}
+              <span className="text-sm font-medium text-[var(--color-base-primary)] whitespace-nowrap">{field.label}</span>
             </div>
-
-            <WizardCheckbox
-              checked={isSelected(field.id)}
-              onCheckedChange={() => toggleField(field)}
-            />
-
-            <span className="flex-1 text-paragraph-2 font-medium text-[var(--color-base-primary)]">
-              {field.label}
-            </span>
-
-            {canBeCopyable(field) && (
-              <WizardCheckbox
-                label="Enable Copy to Clipboard"
-                checked={isSelected(field.id) && (tableColumns.find(f => f.id === field.id)?.copyable || false)}
-                onCheckedChange={() => toggleCopyable(field.id)}
-              />
-            )}
-          </div>
-        ))}
-        {orderedFields.length === 0 && (
-          <div className="py-8 text-center text-sm text-[var(--color-base-tertiary)]">
-            No fields available. Configure the Create Page first.
-          </div>
-        )}
+          ))}
+          {availableFields.length === 0 && tableColumns.length > 0 && (
+            <p className="text-sm text-[var(--color-base-tertiary)]">All fields are in the table</p>
+          )}
+        </div>
       </div>
+
+      {orderedFields.length === 0 && (
+        <div className="py-8 text-center text-sm text-[var(--color-base-tertiary)]">
+          No fields available. Configure the Create Page first.
+        </div>
+      )}
     </div>
   );
 }
@@ -3541,40 +4450,22 @@ function StepFilters({ intent, updateIntent }: StepProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-medium text-[var(--color-base-primary)] mb-1">
-          Filters & Search
-        </h3>
-        <p className="text-sm text-[var(--color-base-secondary)]">
-          Select which filters should be available based on your table columns.
-        </p>
-      </div>
-
       <div className="space-y-3">
         <div className="text-xs font-medium text-[var(--color-base-secondary)] uppercase tracking-wider">
           Search
         </div>
-        <div
+        <label
           className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-base-stroke)] cursor-pointer hover:bg-[var(--color-base-surface-secondary)] transition-colors"
-          onClick={toggleFreeTextSearch}
-          onMouseDown={(e) => e.preventDefault()}
         >
-          <div className={`relative shrink-0 size-4 rounded border transition-all duration-200 flex items-center justify-center ${
-            intent.filters.freeTextSearch
-              ? "bg-[var(--color-base-primary)] border-[var(--color-base-primary)] text-white"
-              : "bg-[var(--color-base-surface-primary)] border-[var(--color-base-stroke)]"
-          }`}>
-            {intent.filters.freeTextSearch && (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M2.5 6.5L4.5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            )}
-          </div>
+          <Checkbox
+            checked={intent.filters.freeTextSearch}
+            onCheckedChange={toggleFreeTextSearch}
+          />
           <div className="flex-1">
             <div className="font-medium text-[var(--color-base-primary)]">Free-text search</div>
             <div className="text-sm text-[var(--color-base-secondary)]">Search across all text fields</div>
           </div>
-        </div>
+        </label>
       </div>
 
       {filterableFields.length > 0 ? (
@@ -3583,33 +4474,19 @@ function StepFilters({ intent, updateIntent }: StepProps) {
             Field Filters ({filterableFields.length} available)
           </div>
           {filterableFields.map((field) => (
-            <div
+            <label
               key={field.id}
               className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-base-stroke)] cursor-pointer hover:bg-[var(--color-base-surface-secondary)] transition-colors"
-              onClick={() => toggleFieldFilter(field.id)}
-              onMouseDown={(e) => e.preventDefault()}
             >
-              <div className={`relative shrink-0 size-4 rounded border transition-all duration-200 flex items-center justify-center ${
-                isFieldFilterEnabled(field.id)
-                  ? "bg-[var(--color-base-primary)] border-[var(--color-base-primary)] text-white"
-                  : "bg-[var(--color-base-surface-primary)] border-[var(--color-base-stroke)]"
-              }`}>
-                {isFieldFilterEnabled(field.id) && (
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                    <path d="M2.5 6.5L4.5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </div>
+              <Checkbox
+                checked={isFieldFilterEnabled(field.id)}
+                onCheckedChange={() => toggleFieldFilter(field.id)}
+              />
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-[var(--color-base-primary)]">{field.label}</span>
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--color-base-surface-secondary)] text-[var(--color-base-tertiary)]">
-                    {field.dataType}
-                  </span>
-                </div>
+                <div className="font-medium text-[var(--color-base-primary)]">{field.label}</div>
                 <div className="text-sm text-[var(--color-base-secondary)]">{field.description}</div>
               </div>
-            </div>
+            </label>
           ))}
         </div>
       ) : (
@@ -3652,15 +4529,6 @@ function StepActions({ intent, updateIntent }: StepProps) {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-medium text-[var(--color-base-primary)] mb-1">
-          Actions
-        </h3>
-        <p className="text-sm text-[var(--color-base-secondary)]">
-          What actions can users perform on table rows?
-        </p>
-      </div>
-
       {/* Row Actions */}
       <div>
         <h4 className="text-sm font-medium text-[var(--color-base-primary)] mb-3">

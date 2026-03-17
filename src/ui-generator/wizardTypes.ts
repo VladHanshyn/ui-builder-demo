@@ -218,12 +218,10 @@ export function createDefaultWizardIntent(): WizardIntent {
 
 // Wizard steps — unified flow: always generates P-03 (create page) + P-02 (table)
 export const WIZARD_STEPS: WizardStep[] = [
-  { id: 0, title: "Feature Location", description: "Name and sidebar placement" },
-  { id: 1, title: "Create Page", description: "Configure create/edit page (P-03)" },
-  { id: 2, title: "Table Configurations", description: "Choose which fields from the create page should appear as columns in the table view" },
-  { id: 3, title: "Filters & Search", description: "Search and field-based filters" },
-  { id: 4, title: "Actions", description: "Row and bulk actions" },
-  { id: 5, title: "Summary", description: "Review and generate" },
+  { id: 0, title: "Inner Page Configurations", description: "Page which users will see when creating or editing an item" },
+  { id: 1, title: "Table Configurations", description: "Choose which fields from the create page should appear as columns in the table view" },
+  { id: 2, title: "Filters & Search", description: "Select which filters should be available based on your table columns" },
+  { id: 3, title: "Actions", description: "What actions can users perform on table rows?" },
 ];
 
 // Convert title to feature ID (kebab-case)

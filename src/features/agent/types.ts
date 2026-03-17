@@ -244,6 +244,8 @@ export interface PropertyField {
   /** Show copy-to-clipboard button next to the field (like table columns) */
   copyable?: boolean;
   readOnly?: boolean;
+  /** Row grouping ID — fields with the same rowId are laid out horizontally */
+  rowId?: string;
 }
 
 export interface PropertySection {

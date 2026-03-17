@@ -751,9 +751,31 @@ function AccordionListRenderer({
               <div className="p-4 space-y-4">
                 {spec.itemTemplate.fields && spec.itemTemplate.fields.length > 0 && (
                   <div className="space-y-4">
-                    {spec.itemTemplate.fields.map(field => (
-                      <PropertyFieldRenderer key={field.id} field={field} sectionKey={`accordion-${spec.id}-`} />
-                    ))}
+                    {(() => {
+                      const fields = spec.itemTemplate.fields!;
+                      const rows: Array<typeof fields> = [];
+                      const seen = new Set<string>();
+                      for (const field of fields) {
+                        const rid = field.rowId ?? field.id;
+                        if (seen.has(rid)) continue;
+                        seen.add(rid);
+                        const group = fields.filter(f => (f.rowId ?? f.id) === rid);
+                        rows.push(group);
+                      }
+                      return rows.map((rowFields) =>
+                        rowFields.length === 1 ? (
+                          <PropertyFieldRenderer key={rowFields[0].id} field={rowFields[0]} sectionKey={`accordion-${spec.id}-`} />
+                        ) : (
+                          <div key={rowFields.map(f => f.id).join("-")} className="flex gap-2">
+                            {rowFields.map(field => (
+                              <div key={field.id} className="flex-1 min-w-0">
+                                <PropertyFieldRenderer field={field} sectionKey={`accordion-${spec.id}-`} />
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      );
+                    })()}
                   </div>
                 )}
                 {spec.itemTemplate.children.map(child => (
