@@ -137,11 +137,12 @@ function extractFieldsFromConfig(config: CreatePageConfig): FieldRef[] {
 // WIZARD HEADER — Category + Feature Name + Close
 // ============================================
 
-function WizardHeader({ intent, updateIntent, onClose, firstFocusableRef }: {
+function WizardHeader({ intent, updateIntent, onClose, firstFocusableRef, highlightTitle }: {
   intent: WizardIntent;
   updateIntent: (updates: Partial<WizardIntent>) => void;
   onClose: () => void;
   firstFocusableRef: React.RefObject<HTMLButtonElement | null>;
+  highlightTitle?: boolean;
 }) {
   const [navState] = React.useState(() => getNavigationState());
   const sections = getSectionsForPickerFn(navState);
@@ -310,8 +311,8 @@ function WizardHeader({ intent, updateIntent, onClose, firstFocusableRef }: {
         <span className="text-headline-2 text-[var(--color-base-tertiary)]">/</span>
 
         {/* Feature Name */}
-        <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-[var(--color-base-surface-secondary)] transition-colors cursor-text ${
-          !intent.title.trim() ? "border border-[var(--color-base-primary)]" : ""
+        <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-[var(--color-base-surface-secondary)] transition-colors cursor-text border ${
+          highlightTitle ? "border-[var(--color-status-error)] bg-[var(--color-status-error)]/[0.12]" : !intent.title.trim() ? "border-[var(--color-base-primary)]" : "border-transparent"
         }`}>
           <input
             value={intent.title}
@@ -428,9 +429,13 @@ export function WizardModal({
     };
   }, [isOpen, onClose]);
 
+  const [highlightTitle, setHighlightTitle] = useState(false);
+
   const updateIntent = useCallback((updates: Partial<WizardIntent>) => {
     setIntent((prev) => ({ ...prev, ...updates }));
   }, []);
+
+  const isTitleEmpty = !intent.title.trim();
 
   const canGoNext = useCallback(() => {
     switch (currentStep) {
@@ -540,7 +545,7 @@ export function WizardModal({
         className="relative w-[1376px] max-w-[calc(100vw-2rem)] h-[90vh] bg-[var(--color-base-stroke)] border border-[var(--color-base-stroke)] rounded-[32px] shadow-2xl flex flex-col overflow-hidden"
       >
         {/* Global Wizard Header */}
-        <WizardHeader intent={intent} updateIntent={updateIntent} onClose={onClose} firstFocusableRef={firstFocusableRef} />
+        <WizardHeader intent={intent} updateIntent={updateIntent} onClose={onClose} firstFocusableRef={firstFocusableRef} highlightTitle={highlightTitle} />
 
         {/* Робоча область */}
         <div className="flex-1 flex min-h-0 pl-6 pr-2 pb-2 gap-0">
@@ -674,7 +679,18 @@ export function WizardModal({
                   Next
                 </Button>
               ) : (
-                <Button onClick={handleSubmit} className="flex-1">Request Feature</Button>
+                <div
+                  className="flex-1"
+                  onMouseEnter={() => { if (isTitleEmpty) setHighlightTitle(true); }}
+                  onMouseLeave={() => setHighlightTitle(false)}
+                >
+                  <Button
+                    onClick={isTitleEmpty ? undefined : handleSubmit}
+                    className={`w-full ${isTitleEmpty && highlightTitle ? "!bg-[var(--color-base-tertiary)] !text-white !pointer-events-none" : ""}`}
+                  >
+                    Request Feature
+                  </Button>
+                </div>
               )}
             </div>
           </div>
@@ -725,9 +741,13 @@ export function WizardPage({
     setTimeout(restore, 0);
   }, [intent]);
 
+  const [highlightTitle, setHighlightTitle] = useState(false);
+
   const updateIntent = useCallback((updates: Partial<WizardIntent>) => {
     setIntent((prev) => ({ ...prev, ...updates }));
   }, []);
+
+  const isTitleEmpty = !intent.title.trim();
 
   const canGoNext = useCallback(() => {
     switch (currentStep) {
@@ -832,7 +852,7 @@ export function WizardPage({
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--color-base-stroke)]">
       {/* Global Wizard Header */}
-      <WizardHeader intent={intent} updateIntent={updateIntent} onClose={() => setShowExitConfirm(true)} firstFocusableRef={{ current: null }} />
+      <WizardHeader intent={intent} updateIntent={updateIntent} onClose={() => setShowExitConfirm(true)} firstFocusableRef={{ current: null }} highlightTitle={highlightTitle} />
 
       <div className="flex-1 flex min-h-0 pl-6 pr-2 pb-2 gap-0">
         {/* Preview Area */}
@@ -965,7 +985,18 @@ export function WizardPage({
                 Next
               </Button>
             ) : (
-              <Button onClick={handleSubmit} className="flex-1">Request Feature</Button>
+              <div
+                className="flex-1"
+                onMouseEnter={() => { if (isTitleEmpty) setHighlightTitle(true); }}
+                onMouseLeave={() => setHighlightTitle(false)}
+              >
+                <Button
+                  onClick={isTitleEmpty ? undefined : handleSubmit}
+                  className={`w-full ${isTitleEmpty && highlightTitle ? "!bg-[var(--color-base-tertiary)] !text-white !pointer-events-none" : ""}`}
+                >
+                  Request Feature
+                </Button>
+              </div>
             )}
           </div>
         </div>
