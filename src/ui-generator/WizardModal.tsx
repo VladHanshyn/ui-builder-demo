@@ -3200,19 +3200,40 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
                             )}
                             <span className="flex-1 truncate">{col.label}</span>
                             {activeStep === 1 && updateIntent && (
-                              <button
-                                type="button"
-                                className="shrink-0 p-0.5 rounded-full text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] opacity-0 group-hover/col:opacity-100 transition-opacity"
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onClick={() => {
-                                  const next = selectedColumns.filter(c => c.id !== col.id);
-                                  updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: next } });
-                                }}
-                              >
-                                <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
-                                  <path d="M3.5 3.5L10.5 10.5M10.5 3.5L3.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                                </svg>
-                              </button>
+                              <>
+                                <button
+                                  type="button"
+                                  title={col.copyable ? "Disable copy to clipboard" : "Enable copy to clipboard"}
+                                  className={`shrink-0 p-0.5 rounded-full transition-opacity ${
+                                    col.copyable
+                                      ? "text-[var(--color-brand-primary)] opacity-100"
+                                      : "text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] opacity-0 group-hover/col:opacity-100"
+                                  }`}
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={() => {
+                                    const next = selectedColumns.map(c => c.id === col.id ? { ...c, copyable: !c.copyable } : c);
+                                    updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: next } });
+                                  }}
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                                    <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                                    <path d="M11 5V3.5C11 2.67 10.33 2 9.5 2H3.5C2.67 2 2 2.67 2 3.5V9.5C2 10.33 2.67 11 3.5 11H5" stroke="currentColor" strokeWidth="1.5"/>
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="shrink-0 p-0.5 rounded-full text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] opacity-0 group-hover/col:opacity-100 transition-opacity"
+                                  onPointerDown={(e) => e.stopPropagation()}
+                                  onClick={() => {
+                                    const next = selectedColumns.filter(c => c.id !== col.id);
+                                    updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: next } });
+                                  }}
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 14 14" fill="none">
+                                    <path d="M3.5 3.5L10.5 10.5M10.5 3.5L3.5 10.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                                  </svg>
+                                </button>
+                              </>
                             )}
                           </div>
                         </th>
