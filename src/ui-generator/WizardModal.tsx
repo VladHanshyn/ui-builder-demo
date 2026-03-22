@@ -121,6 +121,14 @@ function extractFieldsFromConfig(config: CreatePageConfig): FieldRef[] {
       for (const si of sItems) {
         if (si.kind === "field") {
           addField(si.id, si.label, mapCreateFieldType(si.type));
+        } else if (si.kind === "tabs") {
+          for (const tab of si.tabs) {
+            for (const ti of tab.items) {
+              if (ti.kind === "field") {
+                addField(ti.id, ti.label, mapCreateFieldType(ti.type));
+              }
+            }
+          }
         }
       }
     }
@@ -430,6 +438,7 @@ export function WizardModal({
   }, [isOpen, onClose]);
 
   const [highlightTitle, setHighlightTitle] = useState(false);
+  const [maxReachedStep, setMaxReachedStep] = useState(0);
 
   const updateIntent = useCallback((updates: Partial<WizardIntent>) => {
     setIntent((prev) => ({ ...prev, ...updates }));
@@ -448,22 +457,11 @@ export function WizardModal({
     }
   }, [currentStep, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
 
-  const isStepComplete = useCallback((step: number) => {
-    switch (step) {
-      case 0: return intent.createPageConfig.sections.length === 1;
-      case 1: return intent.selectedFields.tableColumns.length > 0;
-      default: return true;
-    }
-  }, [intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
-
   const canNavigateToStep = useCallback((target: number) => {
     if (target === currentStep) return false;
-    if (target < currentStep) return true;
-    for (let s = 0; s < target; s++) {
-      if (!isStepComplete(s)) return false;
-    }
-    return true;
-  }, [currentStep, isStepComplete]);
+    if (target <= maxReachedStep) return true;
+    return false;
+  }, [currentStep, maxReachedStep]);
 
   const autoPopulateTableColumns = useCallback(() => {
     if ((intent.selectedFields?.tableColumns || []).length > 0) return;
@@ -507,7 +505,9 @@ export function WizardModal({
       if (currentStep === 0) {
         autoPopulateTableColumns();
       }
-      setCurrentStep((prev) => prev + 1);
+      const nextStep = currentStep + 1;
+      setCurrentStep(nextStep);
+      setMaxReachedStep((prev) => Math.max(prev, nextStep));
     }
   };
 
@@ -742,6 +742,7 @@ export function WizardPage({
   }, [intent]);
 
   const [highlightTitle, setHighlightTitle] = useState(false);
+  const [maxReachedStep, setMaxReachedStep] = useState(0);
 
   const updateIntent = useCallback((updates: Partial<WizardIntent>) => {
     setIntent((prev) => ({ ...prev, ...updates }));
@@ -760,22 +761,11 @@ export function WizardPage({
     }
   }, [currentStep, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
 
-  const isStepComplete = useCallback((step: number) => {
-    switch (step) {
-      case 0: return intent.createPageConfig.sections.length === 1;
-      case 1: return intent.selectedFields.tableColumns.length > 0;
-      default: return true;
-    }
-  }, [intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
-
   const canNavigateToStep = useCallback((target: number) => {
     if (target === currentStep) return false;
-    if (target < currentStep) return true;
-    for (let s = 0; s < target; s++) {
-      if (!isStepComplete(s)) return false;
-    }
-    return true;
-  }, [currentStep, isStepComplete]);
+    if (target <= maxReachedStep) return true;
+    return false;
+  }, [currentStep, maxReachedStep]);
 
   const autoPopulateTableColumns = useCallback(() => {
     if ((intent.selectedFields?.tableColumns || []).length > 0) return;
@@ -819,7 +809,9 @@ export function WizardPage({
       if (currentStep === 0) {
         autoPopulateTableColumns();
       }
-      setCurrentStep((prev) => prev + 1);
+      const nextStep = currentStep + 1;
+      setCurrentStep(nextStep);
+      setMaxReachedStep((prev) => Math.max(prev, nextStep));
     }
   };
 
@@ -1438,7 +1430,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [draggingAccordionIdx, setDraggingAccordionIdx] = useState<number | null>(null);
   const [dropInsertIdx, setDropInsertIdx] = useState<number | null>(null);
-  const [rowJoinTarget, setRowJoinTarget] = useState<string | null>(null);
+  const [rowJoinTarget, setRowJoinTarget] = useState<{ fieldId: string; side: "left" | "right" } | null>(null);
   const [hReorderTarget, setHReorderTarget] = useState<{ fieldId: string; side: "left" | "right" } | null>(null);
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
   const dropContainerRef = React.useRef<HTMLDivElement>(null);
@@ -1533,6 +1525,17 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
     setDetailsItems(detailsItems.filter(i => i.id !== itemId));
   }, [detailsItems, setDetailsItems]);
 
+  const duplicateDetailsItem = useCallback((itemId: string) => {
+    const idx = detailsItems.findIndex(i => i.id === itemId);
+    if (idx === -1) return;
+    const src = detailsItems[idx];
+    const newId = uid(src.kind === "field" ? src.type : src.kind);
+    const copy: SectionItem = { ...src, id: newId, rowId: uid("row") };
+    const next = [...detailsItems];
+    next.splice(idx + 1, 0, copy);
+    setDetailsItems(next);
+  }, [detailsItems, setDetailsItems]);
+
   const updateDetailsItem = useCallback((itemId: string, updates: Record<string, unknown>) => {
     setDetailsItems(detailsItems.map(i => (i.id === itemId ? { ...i, ...updates } : i)));
   }, [detailsItems, setDetailsItems]);
@@ -1605,22 +1608,14 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
     const rowEls = dropContainerRef.current.querySelectorAll<HTMLElement>("[data-row-idx]");
     if (rowEls.length === 0) return 0;
 
-    const zone = 24;
+    const rects = Array.from(rowEls).map(el => el.getBoundingClientRect());
+    const midpoints = rects.map(r => (r.top + r.bottom) / 2);
 
-    const firstRect = rowEls[0].getBoundingClientRect();
-    if (clientY < firstRect.top + zone) return 0;
-
-    for (let i = 0; i < rowEls.length - 1; i++) {
-      const bottomEdge = rowEls[i].getBoundingClientRect().bottom;
-      const topEdge = rowEls[i + 1].getBoundingClientRect().top;
-      const boundary = (bottomEdge + topEdge) / 2;
-      if (clientY > boundary - zone && clientY < boundary + zone) return i + 1;
+    if (clientY < midpoints[0]) return 0;
+    for (let i = 0; i < midpoints.length - 1; i++) {
+      if (clientY >= midpoints[i] && clientY < midpoints[i + 1]) return i + 1;
     }
-
-    const lastRect = rowEls[rowEls.length - 1].getBoundingClientRect();
-    if (clientY > lastRect.bottom - zone) return rowEls.length;
-
-    return -1;
+    return rects.length;
   }, [rows.length]);
 
   React.useEffect(() => {
@@ -1658,8 +1653,27 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
   }, [actions, updateSectionConfigFromPreview]);
 
   const addFieldFromPalette = useCallback((type: string, label: string, atIndex?: number, joinRowId?: string) => {
+    const newId = uid(type === "action" ? "action" : type === "tabs" ? "tabs" : "field");
+
+    if (type === "tabs") {
+      const tab1Id = uid("tab");
+      const tab2Id = uid("tab");
+      const newItem: SectionItem = {
+        id: newId, kind: "tabs", rowId: newId,
+        tabs: [
+          { id: tab1Id, label: "Tab 1", items: [] },
+          { id: tab2Id, label: "Tab 2", items: [] },
+        ],
+        activeTabId: tab1Id,
+      };
+      const next = [...sectionItems];
+      if (atIndex !== undefined && atIndex >= 0) next.splice(atIndex, 0, newItem);
+      else next.push(newItem);
+      setSectionItems(next);
+      return;
+    }
+
     const kind = type === "action" ? "action" as const : "field" as const;
-    const newId = uid(kind);
     const rowHasAction = joinRowId ? sectionItems.some(i => i.rowId === joinRowId && i.kind === "action") : false;
     const rowHasTextarea = joinRowId ? sectionItems.some(i => i.rowId === joinRowId && i.kind === "field" && i.type === "textarea") : false;
     const effectiveJoinRowId = (kind === "action" || rowHasAction || type === "textarea" || rowHasTextarea) ? undefined : joinRowId;
@@ -1693,6 +1707,85 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
     setSectionItems(sectionItems.filter(i => i.id !== fieldId));
   }, [sectionItems, setSectionItems]);
 
+  const duplicateField = useCallback((fieldId: string) => {
+    const idx = sectionItems.findIndex(i => i.id === fieldId);
+    if (idx === -1) return;
+    const src = sectionItems[idx];
+    const newId = uid(src.kind === "field" ? src.type : src.kind);
+    const newRowId = uid("row");
+    if (src.kind === "tabs") {
+      const rowIdMap = new Map<string, string>();
+      const clonedTabs = src.tabs.map(t => {
+        const clonedItems = t.items.map(item => {
+          if (!rowIdMap.has(item.rowId)) rowIdMap.set(item.rowId, uid("row"));
+          const cId = uid(item.kind === "field" ? item.type : item.kind);
+          return { ...item, id: cId, rowId: rowIdMap.get(item.rowId)! };
+        });
+        rowIdMap.clear();
+        return { ...t, id: uid("tab"), items: clonedItems };
+      });
+      const copy: SectionItem = { ...src, id: newId, rowId: newRowId, tabs: clonedTabs, activeTabId: clonedTabs[0]?.id ?? "" };
+      const next = [...sectionItems];
+      next.splice(idx + 1, 0, copy);
+      setSectionItems(next);
+    } else {
+      const copy: SectionItem = { ...src, id: newId, rowId: newRowId };
+      const next = [...sectionItems];
+      next.splice(idx + 1, 0, copy);
+      setSectionItems(next);
+    }
+  }, [sectionItems, setSectionItems]);
+
+  const updateTabsItem = useCallback((tabsId: string, updater: (item: Extract<SectionItem, { kind: "tabs" }>) => SectionItem) => {
+    setSectionItems(sectionItems.map(i => i.id === tabsId && i.kind === "tabs" ? updater(i) : i));
+  }, [sectionItems, setSectionItems]);
+
+  const addFieldToTab = useCallback((tabsId: string, type: string, label: string, joinRowId?: string, atIndex?: number) => {
+    const fieldId = uid("field");
+    const effectiveRowId = (type === "textarea" || type === "action") ? fieldId : joinRowId || fieldId;
+    const newField: SectionItem = { id: fieldId, kind: "field", label, type, rowId: effectiveRowId };
+    updateTabsItem(tabsId, (ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => {
+        if (t.id !== ti.activeTabId) return t;
+        if (joinRowId && effectiveRowId === joinRowId) {
+          const rowCount = t.items.filter(i => i.rowId === joinRowId).length;
+          if (rowCount >= 3) return t;
+          if (t.items.some(i => i.rowId === joinRowId && i.kind === "field" && i.type === "textarea")) return t;
+          const lastIdx = t.items.findLastIndex(i => i.rowId === joinRowId);
+          if (lastIdx !== -1) {
+            const next = [...t.items];
+            next.splice(lastIdx + 1, 0, newField);
+            return { ...t, items: next };
+          }
+        }
+        if (atIndex !== undefined && atIndex >= 0 && atIndex <= t.items.length) {
+          const next = [...t.items];
+          next.splice(atIndex, 0, newField);
+          return { ...t, items: next };
+        }
+        return { ...t, items: [...t.items, newField] };
+      }),
+    }));
+  }, [updateTabsItem]);
+
+  const removeFieldFromTab = useCallback((tabsId: string, fieldId: string) => {
+    updateTabsItem(tabsId, (ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => ({ ...t, items: t.items.filter(i => i.id !== fieldId) })),
+    }));
+  }, [updateTabsItem]);
+
+  const updateFieldInTab = useCallback((tabsId: string, fieldId: string, updates: Partial<SectionItem>) => {
+    updateTabsItem(tabsId, (ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => ({
+        ...t,
+        items: t.items.map(i => i.id === fieldId ? { ...i, ...updates } as SectionItem : i),
+      })),
+    }));
+  }, [updateTabsItem]);
+
   const splitFromRow = useCallback((fieldId: string) => {
     setSectionItems(sectionItems.map(i => i.id === fieldId ? { ...i, rowId: i.id } : i));
   }, [sectionItems, setSectionItems]);
@@ -1718,8 +1811,10 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
     const dragItem = next[fromIdx];
     if (dragItem.rowId === targetRowId) return;
     if (dragItem.kind === "action") return;
+    if (dragItem.kind === "tabs") return;
     if (dragItem.kind === "field" && dragItem.type === "textarea") return;
     if (next.some(i => i.rowId === targetRowId && i.kind === "action")) return;
+    if (next.some(i => i.rowId === targetRowId && i.kind === "tabs")) return;
     if (next.some(i => i.rowId === targetRowId && i.kind === "field" && i.type === "textarea")) return;
     if (next.filter(i => i.rowId === targetRowId).length >= 3) return;
     next.splice(fromIdx, 1);
@@ -2024,7 +2119,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                     {item.expanded && (
                       <div
                         ref={dropContainerRef}
-                        className="px-1 py-1 min-h-[60px] flex flex-col"
+                        className="px-1 pt-1 pb-8 min-h-[60px] flex flex-col"
                         onDragOver={(e) => {
                           const isPalette = e.dataTransfer.types.includes("palette-component");
                           const isReorder = e.dataTransfer.types.includes("field-reorder");
@@ -2041,7 +2136,12 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                               }
                             }
                           }
-                          setDropInsertIdx(idx === -1 ? null : idx);
+                          if (idx !== -1) {
+                            setDropInsertIdx(idx);
+                            setRowJoinTarget(null);
+                          } else {
+                            setDropInsertIdx(null);
+                          }
                           startAutoScroll(e.clientY);
                         }}
                         onDragEnd={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); stopAutoScroll(); }}
@@ -2080,18 +2180,62 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                         {rows.map((rowGroup, rowIdx) => {
                           const isMulti = rowGroup.items.length > 1;
                           return (
-                            <React.Fragment key={`${rowGroup.rowId}-${rowIdx}`}>
-                              {/* Drop indicator gap ABOVE this row */}
-                              <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
-                                dropInsertIdx === rowIdx
-                                  ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
-                                  : "h-0 border-0 opacity-0"
-                              }`} />
                             <div
+                              key={`${rowGroup.rowId}-${rowIdx}`}
                               data-row-idx={rowIdx}
-                              className="transition-transform duration-200 ease-in-out"
+                              className="relative"
                             >
-                              <div className={`flex ${isMulti ? "items-stretch" : ""}`}>
+                              <div
+                                className={`flex ${isMulti ? "items-stretch" : ""}`}
+                                onDragOver={(e) => {
+                                  const isPalette = e.dataTransfer.types.includes("palette-component");
+                                  const isReorder = e.dataTransfer.types.includes("field-reorder");
+                                  if (!isPalette && !isReorder) return;
+                                  if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
+                                  if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
+                                  if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
+                                  if (rowGroup.items.length >= 3) return;
+                                  if (rowGroup.items.some(i => i.kind === "action" || i.kind === "tabs")) return;
+                                  if (rowGroup.items.some(i => i.kind === "field" && i.type === "textarea")) return;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
+                                  const rowRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                  const xRatio = (e.clientX - rowRect.left) / rowRect.width;
+                                  const itemCount = rowGroup.items.length;
+                                  const gapIdx = Math.min(Math.round(xRatio * itemCount), itemCount);
+                                  if (gapIdx === 0) {
+                                    setRowJoinTarget({ fieldId: rowGroup.items[0].id, side: "left" });
+                                  } else {
+                                    setRowJoinTarget({ fieldId: rowGroup.items[gapIdx - 1].id, side: "right" });
+                                  }
+                                  setHReorderTarget(null);
+                                  setDropInsertIdx(null);
+                                }}
+                                onDrop={(e) => {
+                                  if (!rowJoinTarget) return;
+                                  if (!rowGroup.items.some(i => i.id === rowJoinTarget.fieldId)) return;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const targetItem = rowGroup.items.find(i => i.id === rowJoinTarget.fieldId);
+                                  setRowJoinTarget(null);
+                                  setHReorderTarget(null);
+                                  setDropInsertIdx(null);
+                                  const reorderData = e.dataTransfer.getData("field-reorder");
+                                  if (reorderData && draggingFieldId) {
+                                    moveFieldToRow(draggingFieldId, targetItem!.rowId);
+                                    setDraggingFieldId(null);
+                                    return;
+                                  }
+                                  const paletteData = e.dataTransfer.getData("palette-component");
+                                  if (paletteData) {
+                                    try {
+                                      const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+                                      addFieldFromPalette(type, label, undefined, targetItem!.rowId);
+                                    } catch { /* ignore */ }
+                                  }
+                                }}
+                              >
                                 {rowGroup.items.map((si) => (
                                   <div
                                     key={si.id}
@@ -2132,31 +2276,43 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                       if (isPalette || isReorder) {
                                         if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
                                         if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
+                                        if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
                                         if (isReorder && draggingFieldId) {
                                           const draggedItem = sectionItems.find(i => i.id === draggingFieldId);
                                           if (!draggedItem || draggedItem.kind === "action") return;
+                                          if (draggedItem.kind === "tabs") return;
                                           if (draggedItem.kind === "field" && draggedItem.type === "textarea") return;
                                           if (draggedItem.rowId === si.rowId) return;
                                         }
                                         if (rowGroup.items.length >= 3) return;
                                         if (rowGroup.items.some(i => i.kind === "action")) return;
                                         if (rowGroup.items.some(i => i.kind === "field" && i.type === "textarea")) return;
+                                        if (rowGroup.items.some(i => i.kind === "tabs")) return;
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
                                         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                         const x = e.clientX - rect.left;
-                                        if (x > rect.width * 0.7) {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
-                                          setRowJoinTarget(si.id);
-                                          setHReorderTarget(null);
-                                          setDropInsertIdx(null);
+                                        const ratio = x / rect.width;
+                                        const fieldIdxInRow = rowGroup.items.indexOf(si);
+                                        const isFirstInRow = fieldIdxInRow === 0;
+                                        if (ratio < 0.5 && isFirstInRow) {
+                                          setRowJoinTarget({ fieldId: si.id, side: "left" });
+                                        } else if (ratio < 0.5 && !isFirstInRow) {
+                                          const prevField = rowGroup.items[fieldIdxInRow - 1];
+                                          setRowJoinTarget({ fieldId: prevField.id, side: "right" });
+                                        } else {
+                                          setRowJoinTarget({ fieldId: si.id, side: "right" });
                                         }
+                                        setHReorderTarget(null);
+                                        setDropInsertIdx(null);
                                         return;
                                       }
                                     }}
                                     onDragLeave={(e) => {
                                       if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                                         if (hReorderTarget?.fieldId === si.id) setHReorderTarget(null);
+                                        if (rowJoinTarget?.fieldId === si.id) setRowJoinTarget(null);
                                       }
                                     }}
                                     onDrop={(e) => {
@@ -2172,7 +2328,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                           return;
                                         }
                                       }
-                                      if (rowJoinTarget !== si.id) return;
+                                      if (rowJoinTarget?.fieldId !== si.id) return;
                                       e.preventDefault();
                                       e.stopPropagation();
                                       setRowJoinTarget(null);
@@ -2224,7 +2380,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                       }}
                                       onDragEnd={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); setDraggingFieldId(null); }}
                                       className={`shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity ${
-                                        si.kind === "field" ? "mt-7" : "mt-2.5"
+                                        si.kind === "field" ? "mt-7" : si.kind === "tabs" ? "mt-2" : "mt-2.5"
                                       }`}
                                     >
                                       <PreviewDragHandleIcon />
@@ -2232,7 +2388,17 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
 
                                     {/* Field content */}
                                     <div className="flex-1 min-w-0">
-                                      {si.kind === "action" ? (
+                                      {si.kind === "tabs" ? (
+                                        <TabsPreview
+                                          tabsItem={si}
+                                          onUpdate={(updater) => updateTabsItem(si.id, updater)}
+                                          onAddField={(type, label, joinRowId, atIndex) => addFieldToTab(si.id, type, label, joinRowId, atIndex)}
+                                          onRemoveField={(fieldId) => removeFieldFromTab(si.id, fieldId)}
+                                          onUpdateField={(fieldId, updates) => updateFieldInTab(si.id, fieldId, updates)}
+                                          onDelete={() => removeField(si.id)}
+                                          onClearParentIndicators={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); }}
+                                        />
+                                      ) : si.kind === "action" ? (
                                         <div className="pt-1 flex items-center gap-2">
                                           <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
                                           <button
@@ -2362,6 +2528,17 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                           <div className="h-px bg-[var(--color-base-stroke)] my-1" />
                                           <button
                                             type="button"
+                                            onClick={() => { duplicateField(si.id); setOpenMenuId(null); }}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] transition-colors text-left"
+                                          >
+                                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                              <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                                              <path d="M11 3H4.5A1.5 1.5 0 003 4.5V11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                                            </svg>
+                                            <span className="text-sm text-[var(--color-base-primary)]">Duplicate</span>
+                                          </button>
+                                          <button
+                                            type="button"
                                             onClick={() => { removeField(si.id); setOpenMenuId(null); }}
                                             className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-status-error)]/10 transition-colors text-left"
                                           >
@@ -2375,30 +2552,32 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                       document.body
                                     )}
 
-                                    {/* Right-edge join indicator (palette) */}
-                                    {rowJoinTarget === si.id && (
-                                      <div className="absolute right-0 top-1 bottom-1 w-1 rounded-full bg-[var(--color-brand-primary)]" />
+                                    {/* Join indicator lines */}
+                                    {rowJoinTarget?.fieldId === si.id && rowJoinTarget.side === "left" && (
+                                      <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                                    )}
+                                    {rowJoinTarget?.fieldId === si.id && rowJoinTarget.side === "right" && (
+                                      <div className="absolute right-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
                                     )}
                                     {/* Horizontal reorder indicators */}
                                     {hReorderTarget?.fieldId === si.id && hReorderTarget.side === "left" && (
-                                      <div className="absolute left-0 top-1 bottom-1 w-1 rounded-full bg-[var(--color-brand-primary)]" />
+                                      <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
                                     )}
                                     {hReorderTarget?.fieldId === si.id && hReorderTarget.side === "right" && (
-                                      <div className="absolute right-0 top-1 bottom-1 w-1 rounded-full bg-[var(--color-brand-primary)]" />
+                                      <div className="absolute right-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
                                     )}
                                   </div>
                                 ))}
                               </div>
+                              {/* Drop indicator line ABOVE this row */}
+                              {dropInsertIdx === rowIdx && (
+                                <div className="absolute -top-1 left-2 right-2 h-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                              )}
+                              {/* Drop indicator line AFTER last row */}
+                              {rowIdx === rows.length - 1 && dropInsertIdx === rows.length && (
+                                <div className="absolute -bottom-1 left-2 right-2 h-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                              )}
                             </div>
-                            {/* Drop indicator gap AFTER last row */}
-                            {rowIdx === rows.length - 1 && (
-                              <div className={`rounded-lg transition-all duration-200 ease-in-out overflow-hidden ${
-                                dropInsertIdx === rows.length
-                                  ? "h-10 border-2 border-dashed border-[var(--color-brand-primary)] bg-[var(--color-brand-primary)]/5 opacity-100"
-                                  : "h-0 border-0 opacity-0"
-                              }`} />
-                            )}
-                            </React.Fragment>
                           );
                         })}
 
@@ -2705,6 +2884,17 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                             <span className="text-sm text-[var(--color-base-primary)]">Copy to clipboard</span>
                           </label>
                           <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                          <button
+                            type="button"
+                            onClick={() => { duplicateDetailsItem(si.id); setDetailsMenuId(null); }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] transition-colors text-left"
+                          >
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                              <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                              <path d="M11 3H4.5A1.5 1.5 0 003 4.5V11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                            </svg>
+                            <span className="text-sm text-[var(--color-base-primary)]">Duplicate</span>
+                          </button>
                           <button
                             type="button"
                             onClick={() => { removeDetailsItem(si.id); setDetailsMenuId(null); }}
@@ -3397,6 +3587,923 @@ function StepGenericPreview({ step, intent }: { step: number; intent: WizardInte
   );
 }
 
+// ============================================
+// TABS PREVIEW COMPONENT
+// ============================================
+
+function TabsPreview({
+  tabsItem,
+  onUpdate,
+  onAddField,
+  onRemoveField,
+  onUpdateField,
+  onDelete,
+  onClearParentIndicators,
+}: {
+  tabsItem: Extract<SectionItem, { kind: "tabs" }>;
+  onUpdate: (updater: (item: Extract<SectionItem, { kind: "tabs" }>) => SectionItem) => void;
+  onAddField: (type: string, label: string, joinRowId?: string, atIndex?: number) => void;
+  onRemoveField: (fieldId: string) => void;
+  onUpdateField: (fieldId: string, updates: Partial<SectionItem>) => void;
+  onClearParentIndicators: () => void;
+  onDelete: () => void;
+}) {
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [tabDragOver, setTabDragOver] = useState(false);
+  const [tabRowJoinTarget, setTabRowJoinTarget] = useState<{ fieldId: string; side: "left" | "right" } | null>(null);
+  const [tabDropInsertIdx, setTabDropInsertIdx] = useState<number | null>(null);
+  const [tabMenuId, setTabMenuId] = useState<string | null>(null);
+  const [tabMenuPos, setTabMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const tabDropContainerRef = useRef<HTMLDivElement>(null);
+  const activeTab = tabsItem.tabs.find(t => t.id === tabsItem.activeTabId) ?? tabsItem.tabs[0];
+  const tabRows = activeTab ? groupByRows(activeTab.items) : [];
+
+  const calcTabDropIndex = useCallback((clientY: number): number => {
+    if (!tabDropContainerRef.current) return -1;
+    const rowEls = tabDropContainerRef.current.querySelectorAll<HTMLElement>("[data-tab-row-idx]");
+    if (rowEls.length === 0) return 0;
+
+    const rects = Array.from(rowEls).map(el => el.getBoundingClientRect());
+    const midpoints = rects.map(r => (r.top + r.bottom) / 2);
+
+    if (clientY < midpoints[0]) return 0;
+    for (let i = 0; i < midpoints.length - 1; i++) {
+      if (clientY >= midpoints[i] && clientY < midpoints[i + 1]) return i + 1;
+    }
+    return rects.length;
+  }, [tabRows.length]);
+
+  const splitFieldFromTabRow = (fieldId: string) => {
+    onUpdate((ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => ({
+        ...t,
+        items: t.items.map(i => i.id === fieldId ? { ...i, rowId: i.id } : i),
+      })),
+    }));
+  };
+
+  const duplicateTabField = (fieldId: string) => {
+    onUpdate((ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => {
+        const idx = t.items.findIndex(i => i.id === fieldId);
+        if (idx === -1) return t;
+        const src = t.items[idx];
+        const newId = uid(src.kind === "field" ? src.type : src.kind);
+        const copy: SectionItem = { ...src, id: newId, rowId: uid("row") };
+        const next = [...t.items];
+        next.splice(idx + 1, 0, copy);
+        return { ...t, items: next };
+      }),
+    }));
+  };
+
+  React.useEffect(() => {
+    const clear = () => { setTabDropInsertIdx(null); setTabRowJoinTarget(null); setTabHReorderTarget(null); setTabDragOver(false); setTabFieldDragId(null); };
+    document.addEventListener("dragend", clear);
+    document.addEventListener("drop", clear);
+    return () => { document.removeEventListener("dragend", clear); document.removeEventListener("drop", clear); };
+  }, []);
+
+  React.useEffect(() => {
+    if (!tabMenuId) return;
+    const close = () => setTabMenuId(null);
+    document.addEventListener("scroll", close, { passive: true, capture: true });
+    return () => document.removeEventListener("scroll", close, { capture: true });
+  }, [tabMenuId]);
+
+  const switchTab = (tabId: string) => {
+    onUpdate((ti) => ({ ...ti, activeTabId: tabId }));
+  };
+
+  const renameTab = (tabId: string, label: string) => {
+    onUpdate((ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => t.id === tabId ? { ...t, label } : t),
+    }));
+  };
+
+  const addTab = () => {
+    const newTabId = uid("tab");
+    onUpdate((ti) => ({
+      ...ti,
+      tabs: [...ti.tabs, { id: newTabId, label: `Tab ${ti.tabs.length + 1}`, items: [] }],
+      activeTabId: newTabId,
+    }));
+  };
+
+  const removeTab = (tabId: string) => {
+    onUpdate((ti) => {
+      if (ti.tabs.length <= 1) return ti;
+      const nextTabs = ti.tabs.filter(t => t.id !== tabId);
+      const newActiveId = ti.activeTabId === tabId ? nextTabs[0].id : ti.activeTabId;
+      return { ...ti, tabs: nextTabs, activeTabId: newActiveId };
+    });
+  };
+
+  const duplicateTab = (tabId: string) => {
+    onUpdate((ti) => {
+      const srcTab = ti.tabs.find(t => t.id === tabId);
+      if (!srcTab) return ti;
+      const newTabId = uid("tab");
+      const rowIdMap = new Map<string, string>();
+      srcTab.items.forEach((item) => {
+        if (!rowIdMap.has(item.rowId)) rowIdMap.set(item.rowId, uid("row"));
+      });
+      const clonedItems = srcTab.items.map((item) => {
+        const newId = uid(item.kind === "field" ? item.type : item.kind);
+        return { ...item, id: newId, rowId: rowIdMap.get(item.rowId) ?? newId };
+      });
+      const srcIdx = ti.tabs.findIndex(t => t.id === tabId);
+      const nextTabs = [...ti.tabs];
+      nextTabs.splice(srcIdx + 1, 0, { id: newTabId, label: `${srcTab.label} copy`, items: clonedItems });
+      return { ...ti, tabs: nextTabs, activeTabId: newTabId };
+    });
+  };
+
+  const [chipMenuTabId, setChipMenuTabId] = useState<string | null>(null);
+  const [chipMenuPos, setChipMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  React.useEffect(() => {
+    if (!chipMenuTabId) return;
+    const close = () => setChipMenuTabId(null);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("scroll", close, { passive: true, capture: true });
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("scroll", close, { capture: true }); };
+  }, [chipMenuTabId]);
+
+  const [tabFieldDragId, setTabFieldDragId] = useState<string | null>(null);
+  const [tabHReorderTarget, setTabHReorderTarget] = useState<{ fieldId: string; side: "left" | "right" } | null>(null);
+
+  const reorderWithinTabRow = useCallback((dragFieldId: string, targetFieldId: string, side: "left" | "right") => {
+    if (dragFieldId === targetFieldId) return;
+    onUpdate((ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => {
+        const fromIdx = t.items.findIndex(i => i.id === dragFieldId);
+        if (fromIdx === -1) return t;
+        const dragItem = t.items[fromIdx];
+        const targetItem = t.items.find(i => i.id === targetFieldId);
+        if (!targetItem || dragItem.rowId !== targetItem.rowId) return t;
+        const next = [...t.items];
+        next.splice(fromIdx, 1);
+        const targetIdx = next.findIndex(i => i.id === targetFieldId);
+        const insertIdx = side === "left" ? targetIdx : targetIdx + 1;
+        next.splice(insertIdx, 0, dragItem);
+        return { ...t, items: next };
+      }),
+    }));
+  }, [onUpdate]);
+
+  const moveTabFieldToRow = useCallback((fieldId: string, targetRowId: string) => {
+    onUpdate((ti) => ({
+      ...ti,
+      tabs: ti.tabs.map(t => ({
+        ...t,
+        items: t.items.map(i => i.id === fieldId ? { ...i, rowId: targetRowId } : i),
+      })),
+    }));
+  }, [onUpdate]);
+
+  const [tabChipDragId, setTabChipDragId] = useState<string | null>(null);
+  const [tabChipDropTarget, setTabChipDropTarget] = useState<{ tabId: string; side: "left" | "right" } | null>(null);
+  const tabChipDropRef = useRef<{ tabId: string; side: "left" | "right" } | null>(null);
+  const tabChipStartX = useRef(0);
+  const tabChipStartY = useRef(0);
+  const tabChipDragging = useRef(false);
+  const tabChipGhostRef = useRef<HTMLDivElement | null>(null);
+
+  const reorderTabs = useCallback((dragId: string, targetId: string, side: "left" | "right") => {
+    if (dragId === targetId) return;
+    onUpdate((ti) => {
+      const tabs = [...ti.tabs];
+      const dragIdx = tabs.findIndex(t => t.id === dragId);
+      if (dragIdx === -1) return ti;
+      const [dragged] = tabs.splice(dragIdx, 1);
+      let targetIdx = tabs.findIndex(t => t.id === targetId);
+      if (targetIdx === -1) return ti;
+      if (side === "right") targetIdx += 1;
+      tabs.splice(targetIdx, 0, dragged);
+      return { ...ti, tabs };
+    });
+  }, [onUpdate]);
+
+  const handleTabChipPointerDown = useCallback((e: React.PointerEvent, tabId: string) => {
+    if (editingTabId) return;
+    tabChipStartX.current = e.clientX;
+    tabChipStartY.current = e.clientY;
+    tabChipDragging.current = false;
+
+    const chipEl = (e.currentTarget as HTMLElement).closest("[data-tab-chip-id]") as HTMLElement | null;
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - tabChipStartX.current;
+      const dy = ev.clientY - tabChipStartY.current;
+      if (!tabChipDragging.current && Math.abs(dx) + Math.abs(dy) < 5) return;
+
+      if (!tabChipDragging.current) {
+        tabChipDragging.current = true;
+        setTabChipDragId(tabId);
+        if (chipEl) {
+          const rect = chipEl.getBoundingClientRect();
+          const ghost = document.createElement("div");
+          ghost.className = "fixed z-[10002] pointer-events-none opacity-80 select-none";
+          ghost.style.width = `${rect.width}px`;
+          ghost.style.height = `${rect.height}px`;
+          ghost.style.left = `${rect.left}px`;
+          ghost.style.top = `${rect.top}px`;
+          ghost.innerHTML = chipEl.innerHTML;
+          ghost.style.background = "var(--color-base-surface-primary)";
+          ghost.style.borderRadius = "8px";
+          ghost.style.border = "1px solid var(--color-base-stroke)";
+          ghost.style.boxShadow = "0 4px 12px rgba(0,0,0,0.12)";
+          ghost.style.display = "flex";
+          ghost.style.alignItems = "center";
+          ghost.style.justifyContent = "center";
+          ghost.style.fontSize = "14px";
+          document.body.appendChild(ghost);
+          tabChipGhostRef.current = ghost;
+        }
+      }
+
+      if (tabChipGhostRef.current) {
+        tabChipGhostRef.current.style.left = `${ev.clientX - (chipEl ? chipEl.getBoundingClientRect().width / 2 : 30)}px`;
+        tabChipGhostRef.current.style.top = `${ev.clientY - 16}px`;
+      }
+
+      const allChips = document.querySelectorAll<HTMLElement>("[data-tab-chip-id]");
+      let found: { tabId: string; side: "left" | "right" } | null = null;
+      allChips.forEach((el) => {
+        const id = el.dataset.tabChipId!;
+        if (id === tabId) return;
+        const r = el.getBoundingClientRect();
+        if (ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom) {
+          const ratio = (ev.clientX - r.left) / r.width;
+          found = { tabId: id, side: ratio < 0.5 ? "left" : "right" };
+        }
+      });
+      tabChipDropRef.current = found;
+      setTabChipDropTarget(found);
+    };
+
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      if (tabChipGhostRef.current) {
+        tabChipGhostRef.current.remove();
+        tabChipGhostRef.current = null;
+      }
+      if (tabChipDragging.current) {
+        const target = tabChipDropRef.current;
+        setTabChipDragId(null);
+        setTabChipDropTarget(null);
+        tabChipDropRef.current = null;
+        if (target) reorderTabs(tabId, target.tabId, target.side);
+      }
+      tabChipDragging.current = false;
+    };
+
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  }, [editingTabId, reorderTabs]);
+
+  return (
+    <div className="pt-1">
+      <div
+        ref={tabDropContainerRef}
+        className={`min-h-[60px] rounded-lg border transition-colors ${
+          tabDragOver
+            ? "border-[var(--color-brand-primary)] border-dashed bg-[var(--color-brand-primary)]/5"
+            : "border-[var(--color-base-stroke)]"
+        }`}
+        onDragOver={(e) => {
+          const isPalette = e.dataTransfer.types.includes("palette-component");
+          const isReorder = e.dataTransfer.types.includes("tab-field-reorder");
+          if (!isPalette && !isReorder) return;
+          if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
+          onClearParentIndicators();
+
+          if (tabRows.length === 0) {
+            setTabDragOver(true);
+            return;
+          }
+
+          const idx = calcTabDropIndex(e.clientY);
+          if (idx !== -1) {
+            setTabDropInsertIdx(idx);
+            setTabRowJoinTarget(null);
+            setTabHReorderTarget(null);
+            setTabDragOver(false);
+          } else {
+            setTabDropInsertIdx(null);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setTabDragOver(false);
+            setTabDropInsertIdx(null);
+            setTabRowJoinTarget(null);
+            setTabHReorderTarget(null);
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const insertAt = tabDropInsertIdx;
+          setTabDragOver(false);
+          setTabDropInsertIdx(null);
+          setTabRowJoinTarget(null);
+          setTabHReorderTarget(null);
+
+          const reorderData = e.dataTransfer.getData("tab-field-reorder");
+          if (reorderData && tabFieldDragId && insertAt !== null) {
+            onUpdate((ti) => ({
+              ...ti,
+              tabs: ti.tabs.map(t => {
+                const fromIdx = t.items.findIndex(i => i.id === tabFieldDragId);
+                if (fromIdx === -1) return t;
+                const item = t.items[fromIdx];
+                const next = [...t.items];
+                next.splice(fromIdx, 1);
+                const newRowId = uid("row");
+                let targetIdx: number;
+                if (insertAt < tabRows.length) {
+                  const firstInRow = tabRows[insertAt].items[0];
+                  targetIdx = next.findIndex(i => i.id === firstInRow.id);
+                  if (targetIdx === -1) targetIdx = next.length;
+                } else {
+                  targetIdx = next.length;
+                }
+                next.splice(targetIdx, 0, { ...item, rowId: newRowId });
+                return { ...t, items: next };
+              }),
+            }));
+            setTabFieldDragId(null);
+            return;
+          }
+
+          const paletteData = e.dataTransfer.getData("palette-component");
+          if (paletteData) {
+            try {
+              const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+              if (type === "tabs") return;
+              if (insertAt !== null && insertAt < tabRows.length) {
+                const firstItemInTargetRow = tabRows[insertAt].items[0];
+                const globalIdx = activeTab ? activeTab.items.findIndex(i => i.id === firstItemInTargetRow.id) : -1;
+                onAddField(type, label, undefined, globalIdx >= 0 ? globalIdx : undefined);
+              } else if (insertAt !== null && insertAt === tabRows.length) {
+                const totalItems = activeTab ? activeTab.items.length : 0;
+                onAddField(type, label, undefined, totalItems);
+              } else {
+                onAddField(type, label);
+              }
+            } catch { /* ignore */ }
+          }
+        }}
+      >
+        {/* Tab header bar inside the container */}
+        <div className="flex items-center gap-2 p-3 pb-0">
+          <div className="flex items-center gap-1.5 flex-1 flex-wrap">
+            {tabsItem.tabs.map((tab) => {
+              const isActive = tab.id === (activeTab?.id);
+              const isEditing = editingTabId === tab.id;
+              const isDragged = tabChipDragId === tab.id;
+              const dropLeft = tabChipDropTarget?.tabId === tab.id && tabChipDropTarget.side === "left";
+              const dropRight = tabChipDropTarget?.tabId === tab.id && tabChipDropTarget.side === "right";
+              return (
+                <div
+                  key={tab.id}
+                  data-tab-chip-id={tab.id}
+                  className={`relative group/chip ${isDragged ? "opacity-30" : ""}`}
+                  onPointerDown={(e) => {
+                    if ((e.target as HTMLElement).closest("button") || isEditing) return;
+                    handleTabChipPointerDown(e, tab.id);
+                  }}
+                  style={{ cursor: isEditing ? undefined : "grab" }}
+                >
+                  {dropLeft && (
+                    <div className="absolute -left-1 top-0 bottom-0 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                  )}
+                  {isEditing ? (
+                    <div className="inline-flex items-center h-8 px-2 rounded-lg border border-[var(--color-base-primary)] text-[var(--color-base-primary)]">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={tab.label}
+                        onChange={(e) => renameTab(tab.id, e.target.value)}
+                        onBlur={() => setEditingTabId(null)}
+                        onKeyDown={(e) => { if (e.key === "Enter") setEditingTabId(null); }}
+                        className="bg-transparent outline-none text-sm w-20 text-center"
+                      />
+                    </div>
+                  ) : (
+                    <Chip
+                      variant="outlined"
+                      selected={isActive}
+                      showCheckmark={false}
+                      onClick={() => { if (!tabChipDragging.current) switchTab(tab.id); }}
+                      leftIcon={
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
+                          <circle cx="6" cy="4" r="1.2" fill="currentColor"/><circle cx="10" cy="4" r="1.2" fill="currentColor"/>
+                          <circle cx="6" cy="8" r="1.2" fill="currentColor"/><circle cx="10" cy="8" r="1.2" fill="currentColor"/>
+                          <circle cx="6" cy="12" r="1.2" fill="currentColor"/><circle cx="10" cy="12" r="1.2" fill="currentColor"/>
+                        </svg>
+                      }
+                    >
+                      <span onDoubleClick={() => setEditingTabId(tab.id)}>{tab.label}</span>
+                    </Chip>
+                  )}
+                  {dropRight && (
+                    <div className="absolute -right-1 top-0 bottom-0 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                  )}
+                  {!isEditing && !tabChipDragId && (
+                    <button
+                      type="button"
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (chipMenuTabId === tab.id) { setChipMenuTabId(null); return; }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setChipMenuPos({ top: rect.bottom + 4, left: rect.left - 80 });
+                        setChipMenuTabId(tab.id);
+                      }}
+                      className="absolute -top-1.5 -right-1.5 hidden group-hover/chip:flex items-center justify-center size-4 rounded-full bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)] text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] hover:border-[var(--color-base-primary)] transition-colors"
+                    >
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                        <circle cx="1.5" cy="4" r="1" fill="currentColor"/>
+                        <circle cx="4" cy="4" r="1" fill="currentColor"/>
+                        <circle cx="6.5" cy="4" r="1" fill="currentColor"/>
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={addTab}
+              className="inline-flex items-center justify-center h-8 w-8 rounded-lg bg-[var(--color-base-surface-secondary)] hover:bg-[var(--color-base-stroke)] text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] transition-colors"
+              title="Add tab"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+            title="Delete tabs"
+          >
+            <PreviewDeleteIcon />
+          </button>
+        </div>
+
+        {tabRows.length === 0 ? (
+          <div className="flex items-center justify-center h-[60px]">
+            <p className="text-xs text-[var(--color-base-tertiary)]">
+              {tabDragOver ? "Drop here" : "Drag fields here"}
+            </p>
+          </div>
+        ) : (
+          <div className="pt-3 px-3 pb-8 flex flex-col relative">
+            {tabRows.map((rowGroup, rowIdx) => {
+              const isMulti = rowGroup.items.length > 1;
+              const canJoinRow = rowGroup.items.length < 3
+                && !rowGroup.items.some(i => i.kind === "field" && i.type === "textarea");
+              return (
+                <div
+                  key={rowGroup.rowId}
+                  data-tab-row-idx={rowIdx}
+                  className={`flex ${isMulti ? "gap-2" : ""} relative ${rowIdx > 0 ? "mt-2" : ""}`}
+                  onDragOver={(e) => {
+                    const isPalette = e.dataTransfer.types.includes("palette-component");
+                    const isReorder = e.dataTransfer.types.includes("tab-field-reorder");
+                    if (!isPalette && !isReorder) return;
+                    if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
+                    if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
+                    if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
+                    if (isReorder && tabFieldDragId) {
+                      const dragItem = activeTab?.items.find(i => i.id === tabFieldDragId);
+                      if (!dragItem) return;
+                      if (dragItem.kind === "field" && dragItem.type === "textarea") return;
+                      if (dragItem.rowId === rowGroup.rowId) return;
+                    }
+                    if (!canJoinRow) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
+                    onClearParentIndicators();
+                    const rowRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const xRatio = (e.clientX - rowRect.left) / rowRect.width;
+                    const itemCount = rowGroup.items.length;
+                    const gapIdx = Math.min(Math.round(xRatio * itemCount), itemCount);
+                    if (gapIdx === 0) {
+                      setTabRowJoinTarget({ fieldId: rowGroup.items[0].id, side: "left" });
+                    } else {
+                      setTabRowJoinTarget({ fieldId: rowGroup.items[gapIdx - 1].id, side: "right" });
+                    }
+                    setTabHReorderTarget(null);
+                    setTabDropInsertIdx(null);
+                    setTabDragOver(false);
+                  }}
+                  onDrop={(e) => {
+                    if (!tabRowJoinTarget) return;
+                    if (!rowGroup.items.some(i => i.id === tabRowJoinTarget.fieldId)) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setTabRowJoinTarget(null);
+                    setTabHReorderTarget(null);
+                    setTabDropInsertIdx(null);
+                    setTabDragOver(false);
+                    const reorderData = e.dataTransfer.getData("tab-field-reorder");
+                    if (reorderData && tabFieldDragId) {
+                      moveTabFieldToRow(tabFieldDragId, rowGroup.rowId);
+                      setTabFieldDragId(null);
+                      return;
+                    }
+                    const paletteData = e.dataTransfer.getData("palette-component");
+                    if (paletteData) {
+                      try {
+                        const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+                        if (type !== "tabs") onAddField(type, label, rowGroup.rowId);
+                      } catch { /* ignore */ }
+                    }
+                  }}
+                >
+                  {rowGroup.items.map((field) => {
+                    if (field.kind !== "field") return null;
+                    const isFieldMulti = rowGroup.items.length > 1;
+                    const fieldJoinLeft = tabRowJoinTarget?.fieldId === field.id && tabRowJoinTarget.side === "left";
+                    const fieldJoinRight = tabRowJoinTarget?.fieldId === field.id && tabRowJoinTarget.side === "right";
+                    const hReorderLeft = tabHReorderTarget?.fieldId === field.id && tabHReorderTarget.side === "left";
+                    const hReorderRight = tabHReorderTarget?.fieldId === field.id && tabHReorderTarget.side === "right";
+                    return (
+                      <div
+                        key={field.id}
+                        data-tab-field-id={field.id}
+                        className={`group/tabfield relative flex items-start gap-1.5 rounded-lg px-2 py-2 transition-all duration-200 flex-1 min-w-0 ${
+                          tabFieldDragId === field.id ? "opacity-30 scale-[0.97]" : "hover:bg-[var(--color-base-surface-secondary)]"
+                        }`}
+                        onDragOver={(e) => {
+                          const isPalette = e.dataTransfer.types.includes("palette-component");
+                          const isReorder = e.dataTransfer.types.includes("tab-field-reorder");
+
+                          if (isReorder && isMulti && tabFieldDragId && tabFieldDragId !== field.id) {
+                            const dragItem = activeTab?.items.find(i => i.id === tabFieldDragId);
+                            if (dragItem && dragItem.rowId === field.rowId) {
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              const x = e.clientX - rect.left;
+                              const side: "left" | "right" = x < rect.width / 2 ? "left" : "right";
+                              const rowItems = rowGroup.items;
+                              const dragIdx = rowItems.findIndex(i => i.id === tabFieldDragId);
+                              const targetIdx = rowItems.findIndex(i => i.id === field.id);
+                              if ((side === "right" && targetIdx === dragIdx - 1) ||
+                                  (side === "left" && targetIdx === dragIdx + 1)) {
+                                setTabHReorderTarget(null);
+                                return;
+                              }
+                              e.preventDefault();
+                              e.stopPropagation();
+                              e.dataTransfer.dropEffect = "move";
+                              setTabHReorderTarget({ fieldId: field.id, side });
+                              setTabDropInsertIdx(null);
+                              setTabRowJoinTarget(null);
+                              return;
+                            }
+                          }
+
+                          if (isPalette || isReorder) {
+                            if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
+                            if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
+                            if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
+                            if (isReorder && tabFieldDragId) {
+                              const dragItem = activeTab?.items.find(i => i.id === tabFieldDragId);
+                              if (!dragItem) return;
+                              if (dragItem.kind === "field" && dragItem.type === "textarea") return;
+                              if (dragItem.rowId === field.rowId) return;
+                            }
+                            if (!canJoinRow) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
+                            onClearParentIndicators();
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            const x = e.clientX - rect.left;
+                            const ratio = x / rect.width;
+                            const fieldIdxInRow = rowGroup.items.indexOf(field);
+                            const isFirstInRow = fieldIdxInRow === 0;
+                            if (ratio < 0.5 && isFirstInRow) {
+                              setTabRowJoinTarget({ fieldId: field.id, side: "left" });
+                            } else if (ratio < 0.5 && !isFirstInRow) {
+                              const prevField = rowGroup.items[fieldIdxInRow - 1];
+                              setTabRowJoinTarget({ fieldId: prevField.id, side: "right" });
+                            } else {
+                              setTabRowJoinTarget({ fieldId: field.id, side: "right" });
+                            }
+                            setTabHReorderTarget(null);
+                            setTabDropInsertIdx(null);
+                            setTabDragOver(false);
+                            return;
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            if (tabRowJoinTarget?.fieldId === field.id) setTabRowJoinTarget(null);
+                            if (tabHReorderTarget?.fieldId === field.id) setTabHReorderTarget(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          if (tabFieldDragId && tabFieldDragId !== field.id && isMulti) {
+                            const dragItem = activeTab?.items.find(i => i.id === tabFieldDragId);
+                            if (dragItem && dragItem.rowId === field.rowId) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const side = tabHReorderTarget?.fieldId === field.id ? tabHReorderTarget.side : "right";
+                              reorderWithinTabRow(tabFieldDragId, field.id, side);
+                              setTabHReorderTarget(null);
+                              setTabFieldDragId(null);
+                              return;
+                            }
+                          }
+                          if (tabRowJoinTarget?.fieldId !== field.id) return;
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setTabRowJoinTarget(null);
+                          setTabHReorderTarget(null);
+                          setTabDropInsertIdx(null);
+                          setTabDragOver(false);
+                          const reorderData = e.dataTransfer.getData("tab-field-reorder");
+                          if (reorderData && tabFieldDragId) {
+                            moveTabFieldToRow(tabFieldDragId, field.rowId);
+                            setTabFieldDragId(null);
+                            return;
+                          }
+                          const paletteData = e.dataTransfer.getData("palette-component");
+                          if (paletteData) {
+                            try {
+                              const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+                              if (type !== "tabs") onAddField(type, label, rowGroup.rowId);
+                            } catch { /* ignore */ }
+                          }
+                        }}
+                      >
+                        {/* Drag handle */}
+                        <div
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData("tab-field-reorder", field.id);
+                            e.dataTransfer.effectAllowed = "move";
+                            setTabFieldDragId(field.id);
+                            const handleEl = e.currentTarget as HTMLElement;
+                            const fieldEl = handleEl.closest("[data-tab-field-id]") as HTMLElement | null;
+                            if (fieldEl) {
+                              const handleRect = handleEl.getBoundingClientRect();
+                              const fieldRect = fieldEl.getBoundingClientRect();
+                              const offsetX = (handleRect.left + handleRect.width / 2) - fieldRect.left;
+                              const offsetY = (handleRect.top + handleRect.height / 2) - fieldRect.top;
+                              const clone = fieldEl.cloneNode(true) as HTMLElement;
+                              clone.style.width = `${fieldEl.offsetWidth}px`;
+                              clone.style.position = "absolute";
+                              clone.style.top = "-9999px";
+                              clone.style.left = "-9999px";
+                              clone.style.opacity = "0.85";
+                              clone.style.borderRadius = "8px";
+                              clone.style.background = "var(--color-base-surface-primary)";
+                              clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+                              document.body.appendChild(clone);
+                              e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                              requestAnimationFrame(() => clone.remove());
+                            }
+                          }}
+                          onDragEnd={() => { setTabDropInsertIdx(null); setTabRowJoinTarget(null); setTabHReorderTarget(null); setTabFieldDragId(null); }}
+                          className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover/tabfield:opacity-100 transition-opacity mt-7"
+                        >
+                          <PreviewDragHandleIcon />
+                        </div>
+
+                        {/* Field content */}
+                        <div className="flex-1 min-w-0">
+                          <div className="relative flex items-center mb-1.5">
+                            <div className="flex items-center min-w-0 overflow-hidden">
+                              <span className="relative inline-flex items-center shrink min-w-0">
+                                <span className="invisible whitespace-pre text-label-normal">{field.label || "Field name"}</span>
+                                <input
+                                  type="text"
+                                  value={field.label}
+                                  onChange={(e) => onUpdateField(field.id, { label: e.target.value })}
+                                  className="absolute inset-0 w-full text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
+                                  placeholder="Field name"
+                                />
+                                {field.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
+                              </span>
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover/tabfield:opacity-100 transition-opacity">
+                                <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
+                              </svg>
+                            </div>
+                            <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover/tabfield:opacity-100 pointer-events-none group-hover/tabfield:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  if (tabMenuId === field.id) { setTabMenuId(null); return; }
+                                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                  setTabMenuPos({ top: rect.bottom + 4, left: rect.right - 224 });
+                                  setTabMenuId(field.id);
+                                }}
+                                className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-all"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="rotate-90">
+                                  <circle cx="8" cy="3" r="1.5" fill="currentColor"/>
+                                  <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+                                  <circle cx="8" cy="13" r="1.5" fill="currentColor"/>
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                          {field.type === "select" || field.type === "multi-select" ? (
+                            <Select
+                              readOnly={!field.readOnly}
+                              disabled={field.readOnly}
+                              placeholder={`Select ${field.label}...`}
+                              options={[{ label: "Option 1", value: "1" }, { label: "Option 2", value: "2" }, { label: "Option 3", value: "3" }]}
+                              multiple={field.type === "multi-select"}
+                            />
+                          ) : field.type === "textarea" ? (
+                            <textarea
+                              disabled={field.readOnly}
+                              placeholder={`Enter ${field.label}...`}
+                              rows={isFieldMulti ? 1 : 2}
+                              className="w-full px-3 py-2 text-sm border border-[var(--color-base-stroke)] rounded-lg bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] disabled:opacity-50 resize-none"
+                            />
+                          ) : field.type === "number" ? (
+                            <Input disabled={field.readOnly} type="number" placeholder="0" rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : field.type === "date-time" ? (
+                            <Input disabled={field.readOnly} placeholder="Select Date" rightIcon={
+                              field.copyable ? <PreviewCopyIcon /> :
+                              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
+                                <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+                                <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                              </svg>
+                            } />
+                          ) : (
+                            <Input disabled={field.readOnly} placeholder={`Enter ${field.label}...`} rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined} />
+                          )}
+                        </div>
+
+                        {/* Join indicator lines */}
+                        {fieldJoinLeft && (
+                          <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                        )}
+                        {fieldJoinRight && (
+                          <div className="absolute right-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                        )}
+                        {/* Horizontal reorder indicators */}
+                        {hReorderLeft && (
+                          <div className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                        )}
+                        {hReorderRight && (
+                          <div className="absolute right-0 top-1 bottom-1 w-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                        )}
+
+                        {/* More menu dropdown (portal) */}
+                        {tabMenuId === field.id && createPortal(
+                          <>
+                            <div className="fixed inset-0 z-[10000]" onMouseDown={() => setTabMenuId(null)} />
+                            <div
+                              className="fixed z-[10001] w-56 rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1"
+                              style={{ top: tabMenuPos.top, left: tabMenuPos.left }}
+                            >
+                              <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                                <Checkbox
+                                  checked={field.required || false}
+                                  onCheckedChange={() => { onUpdateField(field.id, { required: !field.required }); }}
+                                />
+                                <span className="text-sm text-[var(--color-base-primary)]">Required</span>
+                              </label>
+                              <label className="flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] cursor-pointer transition-colors">
+                                <Checkbox
+                                  checked={field.readOnly === true}
+                                  onCheckedChange={() => { onUpdateField(field.id, { readOnly: !field.readOnly }); }}
+                                />
+                                <span className="text-sm text-[var(--color-base-primary)]">Read-only</span>
+                              </label>
+                              <label className={`flex items-center gap-2.5 px-3 py-2 transition-colors ${field.type === "input" ? "hover:bg-[var(--color-base-surface-secondary)] cursor-pointer" : "opacity-40 cursor-not-allowed"}`}>
+                                <Checkbox
+                                  checked={field.copyable || false}
+                                  disabled={field.type !== "input"}
+                                  onCheckedChange={() => { if (field.type === "input") onUpdateField(field.id, { copyable: !field.copyable }); }}
+                                />
+                                <span className="text-sm text-[var(--color-base-primary)]">Copy to clipboard</span>
+                              </label>
+                              {isFieldMulti && (
+                                <>
+                                  <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                                  <button
+                                    type="button"
+                                    onClick={() => { splitFieldFromTabRow(field.id); setTabMenuId(null); }}
+                                    className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] transition-colors text-left"
+                                  >
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                      <path d="M8 2V14M3 5L5 2L7 5M9 11L11 14L13 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                    <span className="text-sm text-[var(--color-base-primary)]">Move to own row</span>
+                                  </button>
+                                </>
+                              )}
+                              <div className="h-px bg-[var(--color-base-stroke)] my-1" />
+                              <button
+                                type="button"
+                                onClick={() => { duplicateTabField(field.id); setTabMenuId(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-base-surface-secondary)] transition-colors text-left"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                  <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                                  <path d="M11 3H4.5A1.5 1.5 0 003 4.5V11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                                </svg>
+                                <span className="text-sm text-[var(--color-base-primary)]">Duplicate</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { onRemoveField(field.id); setTabMenuId(null); }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 hover:bg-[var(--color-status-error)]/10 transition-colors text-left"
+                              >
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                                  <path d="M2.667 4.667H13.333M6.667 7.333V11.333M9.333 7.333V11.333M3.333 4.667L4 12.667C4 13.403 4.597 14 5.333 14H10.667C11.403 14 12 13.403 12 12.667L12.667 4.667M6 4.667V2.667C6 2.299 6.299 2 6.667 2H9.333C9.701 2 10 2.299 10 2.667V4.667" stroke="var(--color-status-error)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                                <span className="text-sm text-[var(--color-status-error)]">Delete</span>
+                              </button>
+                            </div>
+                          </>,
+                          document.body
+                        )}
+                      </div>
+                    );
+                  })}
+                  {/* Drop indicator line ABOVE this row */}
+                  {tabDropInsertIdx === rowIdx && (
+                    <div className="absolute -top-1 left-0 right-0 h-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                  )}
+                  {/* Drop indicator line AFTER last row */}
+                  {rowIdx === tabRows.length - 1 && tabDropInsertIdx === tabRows.length && (
+                    <div className="absolute -bottom-1 left-0 right-0 h-0.5 rounded-full bg-[var(--color-brand-primary)] z-10 pointer-events-none" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      {chipMenuTabId && createPortal(
+        <>
+          <div className="fixed inset-0 z-[10000]" onMouseDown={() => setChipMenuTabId(null)} />
+          <div
+            className="fixed z-[10001] w-40 rounded-lg border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] shadow-lg py-1"
+            style={{ top: chipMenuPos.top, left: chipMenuPos.left }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+              onClick={() => { duplicateTab(chipMenuTabId); setChipMenuTabId(null); }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3"/>
+                <path d="M11 3H4.5A1.5 1.5 0 003 4.5V11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+              </svg>
+              Duplicate
+            </button>
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+              onClick={() => { setEditingTabId(chipMenuTabId); setChipMenuTabId(null); }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M11.5 2.5a1.77 1.77 0 012.5 2.5L5.5 13.5 2 14l.5-3.5L11.5 2.5z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Rename
+            </button>
+            <button
+              type="button"
+              className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ${tabsItem.tabs.length <= 1 ? "text-[var(--color-base-tertiary)] opacity-40 cursor-not-allowed" : "text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/[0.08]"}`}
+              onClick={() => { if (tabsItem.tabs.length > 1) { removeTab(chipMenuTabId); setChipMenuTabId(null); } }}
+              disabled={tabsItem.tabs.length <= 1}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M4 6v7a1 1 0 001 1h6a1 1 0 001-1V6M3 4h10M6.5 4V3a1 1 0 011-1h1a1 1 0 011 1v1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Delete
+            </button>
+          </div>
+        </>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 /** Візуалізація схеми сторінки P-03: підсвічує зону, над якою зараз працює користувач */
 function PageLayoutWireframe({ activeZone }: { activeZone: "zoneB" | "properties" }) {
   const zoneBActive = activeZone === "zoneB";
@@ -3441,10 +4548,13 @@ function PageLayoutWireframe({ activeZone }: { activeZone: "zoneB" | "properties
   );
 }
 
-// Unified section item: field or action
+// Unified section item: field, action, or tabs container
+type TabDefinition = { id: string; label: string; items: SectionItem[] };
+
 type SectionItem =
   | { id: string; kind: "field"; label: string; type: string; required?: boolean; autoGenerated?: boolean; placeholder?: string; copyable?: boolean; readOnly?: boolean; rowId: string }
-  | { id: string; kind: "action"; label: string; rowId: string };
+  | { id: string; kind: "action"; label: string; rowId: string }
+  | { id: string; kind: "tabs"; rowId: string; tabs: TabDefinition[]; activeTabId: string };
 
 type RowGroup = { rowId: string; items: SectionItem[] };
 
@@ -3491,6 +4601,7 @@ const FIELD_PALETTE_ITEMS = [
 ];
 
 const OTHER_PALETTE_ITEMS = [
+  { type: "tabs", label: "Tabs", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="10.75" width="18.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.5"/><rect x="5" y="7" width="7" height="4" rx="2" fill="currentColor"/><rect x="14" y="7" width="7" height="4" rx="2" stroke="currentColor" strokeWidth="1"/></svg> },
   { type: "action", label: "Button", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="17" y="13" width="1.5" height="6" rx="0.75" transform="rotate(90 17 13)" fill="currentColor"/></svg> },
 ];
 
@@ -3650,6 +4761,7 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
                     onDragStart={(e) => {
                       e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
                       if (pi.type === "action") e.dataTransfer.setData("palette-is-action", "1");
+                      if (pi.type === "tabs") e.dataTransfer.setData("palette-is-tabs", "1");
                       e.dataTransfer.effectAllowed = "copy";
                       const el = e.currentTarget as HTMLElement;
                       const elRect = el.getBoundingClientRect();

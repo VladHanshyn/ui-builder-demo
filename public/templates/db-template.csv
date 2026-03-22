@@ -1,0 +1,6 @@
+Title,Campaign ID,Status,Created at,Description,Comments
+"Summer Campaign","CMP-001","Active","2026-01-15","Summer promo campaign","Launch in June"
+"Winter Sale","CMP-002","Draft","2026-02-01","Winter discount offer","Pending approval"
+"New User Welcome","CMP-003","Active","2026-03-10","Onboarding flow","Auto-triggered"
+"VIP Rewards","CMP-004","Paused","2026-01-20","Loyalty program","Review Q2"
+"Flash Sale","CMP-005","Draft","2026-03-15","24-hour flash sale","Needs creative assets"

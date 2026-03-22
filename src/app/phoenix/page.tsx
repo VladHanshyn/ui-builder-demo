@@ -8,8 +8,196 @@ import { titleToFeatureId } from "@/ui-generator/wizardTypes";
 import { PreviewRenderer } from "@/features/agent/components/PreviewRenderer";
 import { CreatePageRenderer } from "@/features/agent/components/CreatePageRenderer";
 import { generateDummyData } from "@/features/agent/agentMock";
-import type { UISpec, TableColumn, CreatePageSpec } from "@/features/agent/types";
+import type { UISpec, TableColumn, CreatePageSpec, SectionSpec } from "@/features/agent/types";
 import type { NavigationConfig } from "@/ui-generator";
+
+// ============================================
+// CSV UTILITIES
+// ============================================
+
+function parseCsv(text: string): { headers: string[]; rows: string[][] } {
+  const lines: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      lines.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current) lines.push(current);
+
+  const splitRow = (line: string): string[] => {
+    const cols: string[] = [];
+    let buf = "";
+    let q = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (q && line[i + 1] === '"') { buf += '"'; i++; }
+        else q = !q;
+      } else if (ch === "," && !q) {
+        cols.push(buf.trim());
+        buf = "";
+      } else {
+        buf += ch;
+      }
+    }
+    cols.push(buf.trim());
+    return cols;
+  };
+
+  const nonEmpty = lines.filter(l => l.trim().length > 0);
+  if (nonEmpty.length === 0) return { headers: [], rows: [] };
+  const headers = splitRow(nonEmpty[0]);
+  const rows = nonEmpty.slice(1).map(splitRow);
+  return { headers, rows };
+}
+
+interface TargetField {
+  label: string;
+  id: string;
+  storageKeys: string[];
+}
+
+function collectTargetFields(spec: UISpec, createSpec: CreatePageSpec): TargetField[] {
+  const targets: TargetField[] = [];
+  const seen = new Set<string>();
+
+  const add = (label: string, id: string, keys: string[]) => {
+    const norm = label.toLowerCase().trim();
+    const existing = targets.find(t => t.label.toLowerCase().trim() === norm);
+    if (existing) {
+      for (const k of keys) if (!existing.storageKeys.includes(k)) existing.storageKeys.push(k);
+    } else {
+      targets.push({ label, id, storageKeys: [...keys] });
+    }
+    seen.add(norm);
+  };
+
+  // Table columns
+  if (spec.table?.columns) {
+    for (const col of spec.table.columns) {
+      if (col.id === "actions") continue;
+      add(col.label, col.id, [col.id]);
+    }
+  }
+
+  // Create page sections
+  const walkSections = (sections: SectionSpec[], prefix: string) => {
+    for (const sec of sections) {
+      switch (sec.type) {
+        case "accordion-list":
+          if (sec.itemTemplate.fields) {
+            for (const f of sec.itemTemplate.fields) {
+              add(f.label, f.id, [`accordion-${sec.id}-${f.id}`, f.id]);
+            }
+          }
+          if (sec.itemTemplate.children) walkSections(sec.itemTemplate.children, prefix);
+          break;
+        case "form":
+          for (const f of sec.fields) {
+            add(f.label, f.id, [f.id]);
+          }
+          break;
+        case "simple-list":
+          for (const f of sec.itemTemplate.fields) {
+            add(f.label, f.id, [f.id]);
+          }
+          break;
+        case "editable-table":
+          for (const col of sec.columns) {
+            add(col.label, col.id, [col.id]);
+          }
+          break;
+      }
+    }
+  };
+
+  if (createSpec.sections) walkSections(createSpec.sections, "");
+
+  // Properties panel
+  if (createSpec.properties?.sections) {
+    for (const sec of createSpec.properties.sections) {
+      for (const f of sec.fields) {
+        add(f.label, f.id, [`prop-${sec.id}-${f.id}`, f.id]);
+      }
+    }
+  }
+
+  return targets;
+}
+
+function autoMapHeaders(csvHeaders: string[], targets: TargetField[]): Map<number, TargetField[]> {
+  const mapping = new Map<number, TargetField[]>();
+  const normHeaders = csvHeaders.map(h => h.toLowerCase().trim());
+  const matched = new Set<TargetField>();
+
+  // Pass 1: exact label match
+  for (let i = 0; i < normHeaders.length; i++) {
+    for (const t of targets) {
+      if (matched.has(t)) continue;
+      if (t.label.toLowerCase().trim() === normHeaders[i]) {
+        mapping.set(i, [...(mapping.get(i) || []), t]);
+        matched.add(t);
+      }
+    }
+  }
+
+  // Pass 2: exact ID match
+  for (let i = 0; i < normHeaders.length; i++) {
+    for (const t of targets) {
+      if (matched.has(t)) continue;
+      if (t.id.toLowerCase() === normHeaders[i]) {
+        mapping.set(i, [...(mapping.get(i) || []), t]);
+        matched.add(t);
+      }
+    }
+  }
+
+  // Pass 3: contains match
+  for (let i = 0; i < normHeaders.length; i++) {
+    for (const t of targets) {
+      if (matched.has(t)) continue;
+      const normLabel = t.label.toLowerCase().trim();
+      if (normHeaders[i].includes(normLabel) || normLabel.includes(normHeaders[i])) {
+        mapping.set(i, [...(mapping.get(i) || []), t]);
+        matched.add(t);
+      }
+    }
+  }
+
+  return mapping;
+}
+
+function buildRowsFromCsv(
+  csvRows: string[][],
+  mapping: Map<number, TargetField[]>,
+): Record<string, string>[] {
+  return csvRows.map(row => {
+    const obj: Record<string, string> = { _createdAt: String(Date.now() + Math.random() * 1000) };
+    for (const [csvIdx, targets] of mapping.entries()) {
+      const val = row[csvIdx] ?? "";
+      for (const t of targets) {
+        for (const key of t.storageKeys) {
+          obj[key] = val;
+        }
+      }
+    }
+    return obj;
+  });
+}
 
 interface FeatureRequest {
   id: string;
@@ -446,6 +634,24 @@ export default function PhoenixPage() {
   /** When set, create form is in edit mode for this row; Save & Close updates instead of appending */
   const [editingRow, setEditingRow] = useState<{ pageId: string; rowIndex: number } | null>(null);
 
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCsvImport = useCallback((csvText: string) => {
+    if (!previewingRequest) return;
+    const { headers, rows } = parseCsv(csvText);
+    if (headers.length === 0 || rows.length === 0) return;
+
+    const targets = collectTargetFields(previewingRequest.spec, previewingRequest.createPageSpec);
+    const mapping = autoMapHeaders(headers, targets);
+    const newRows = buildRowsFromCsv(rows, mapping);
+
+    const pageId = `preview-${previewingRequest.pageId}`;
+    setSavedTableRows(prev => ({
+      ...prev,
+      [pageId]: [...(prev[pageId] || []), ...newRows],
+    }));
+  }, [previewingRequest]);
+
   const hydrated = useRef(false);
   const skipFirstWrite = useRef({
     featureRequests: true,
@@ -654,6 +860,49 @@ export default function PhoenixPage() {
           case "accordion-list": {
             const rawItems = (c.items ?? c.fields ?? []) as Array<Record<string, unknown>>;
             const fieldItems = rawItems.filter((it: Record<string, unknown>) => !it.kind || it.kind === "field");
+            const tabsItems = rawItems.filter((it: Record<string, unknown>) => it.kind === "tabs");
+
+            const convertTabsToChildren = (tabs: Array<Record<string, unknown>>): import("@/features/agent/types").SectionSpec[] => {
+              const result: import("@/features/agent/types").SectionSpec[] = [];
+              for (const tabsItem of tabs) {
+                const tabDefs = (tabsItem.tabs as Array<{ id: string; label: string; items: Array<Record<string, unknown>> }>) ?? [];
+                for (const tab of tabDefs) {
+                  const tabFields = (tab.items ?? []).filter((f: Record<string, unknown>) => !f.kind || f.kind === "field");
+                  if (tabFields.length > 0) {
+                    result.push({
+                      type: "form" as const,
+                      id: `${s.id}-tab-${tab.id}`,
+                      title: tab.label,
+                      fields: tabFields.map((f: Record<string, unknown>) => {
+                        const rawType = String(f.type ?? "input");
+                        const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
+                        const ftype = isReadOnly ? "input" : rawType;
+                        return {
+                          id: String(f.id ?? ""),
+                          label: String(f.label ?? ""),
+                          type: ftype as import("@/features/agent/types").FormFieldType,
+                          required: Boolean(f.required),
+                          readOnly: isReadOnly || undefined,
+                        };
+                      }),
+                    });
+                  }
+                }
+              }
+              return result;
+            };
+
+            const existingChildren = c.children
+              ? convertSections((c.children as typeof cfg.sections).map((ch: Record<string, unknown>) => ({
+                  id: `${s.id}-child-${ch.title || "section"}`,
+                  type: String(ch.type || "form") as typeof s.type,
+                  title: String(ch.title || "Section"),
+                  config: ch.fields ? { fields: ch.fields } : {},
+                })))
+              : [];
+
+            const tabChildren = convertTabsToChildren(tabsItems);
+
             return {
               type: "accordion-list" as const,
               id: s.id,
@@ -678,14 +927,7 @@ export default function PhoenixPage() {
                     rowId: f.rowId ? String(f.rowId) : undefined,
                   };
                 }),
-                children: c.children
-                  ? convertSections((c.children as typeof cfg.sections).map((ch: Record<string, unknown>) => ({
-                      id: `${s.id}-child-${ch.title || "section"}`,
-                      type: String(ch.type || "form") as typeof s.type,
-                      title: String(ch.title || "Section"),
-                      config: ch.fields ? { fields: ch.fields } : {},
-                    })))
-                  : [],
+                children: [...existingChildren, ...tabChildren],
               },
             };
           }
@@ -1056,6 +1298,33 @@ export default function PhoenixPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--color-base-stroke)] text-[var(--color-base-secondary)] hover:bg-[var(--color-base-surface-secondary)] transition-colors whitespace-nowrap"
                   >
                     Close Preview
+                  </button>
+                  <input
+                    ref={csvInputRef}
+                    type="file"
+                    accept=".csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        if (typeof reader.result === "string") handleCsvImport(reader.result);
+                      };
+                      reader.readAsText(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <button
+                    onClick={() => csvInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--color-brand-primary)] text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/10 transition-colors whitespace-nowrap"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                      <path d="M6.5 9.5L9.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      <path d="M8.5 11.5L7 13C5.9 14.1 4.1 14.1 3 13C1.9 11.9 1.9 10.1 3 9L4.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      <path d="M7.5 4.5L9 3C10.1 1.9 11.9 1.9 13 3C14.1 4.1 14.1 5.9 13 7L11.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    Link DB
                   </button>
                   <button
                     onClick={() => {
