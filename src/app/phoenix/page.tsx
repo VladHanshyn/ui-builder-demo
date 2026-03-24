@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ConfirmModal } from "@/components/ui/Modal";
 import { type WizardIntent, type NavSection } from "@/ui-generator";
-import { getNavigation, saveNavigation, addPageToSection, addNewSection, updatePageLabel, DEFAULT_SECTIONS } from "@/ui-generator/navigationTree";
+import { addPageToSection, addNewSection, updatePageLabel, DEFAULT_SECTIONS } from "@/ui-generator/navigationTree";
 import { titleToFeatureId } from "@/ui-generator/wizardTypes";
 import { PreviewRenderer } from "@/features/agent/components/PreviewRenderer";
 import { CreatePageRenderer } from "@/features/agent/components/CreatePageRenderer";
@@ -20,8 +20,9 @@ import type {
   EditableTableSpec,
 } from "@/features/agent/types";
 import type { NavigationConfig } from "@/ui-generator";
+import type { PhoenixStoreSnapshot } from "@/lib/phoenixStore";
 
-/** Phoenix demo persistence (approved pages, specs, queue) — cleared by debug reset */
+/** Local-only keys (wizard handoff + backward compatibility cleanup). */
 const PHOENIX_CLEARABLE_STORAGE_KEYS = [
   "phoenix-page-specs",
   "phoenix-create-page-specs",
@@ -903,7 +904,7 @@ export default function PhoenixPage() {
 
   const handleDebugResetConfirm = useCallback(() => {
     const freshNav = JSON.parse(JSON.stringify({ sections: DEFAULT_SECTIONS })) as { sections: NavSection[] };
-    saveNavigation(freshNav);
+    void fetch("/api/phoenix-store", { method: "DELETE" });
     for (const k of PHOENIX_CLEARABLE_STORAGE_KEYS) {
       try {
         localStorage.removeItem(k);
@@ -983,171 +984,129 @@ export default function PhoenixPage() {
   }, [featureRequests]);
 
   const hydrated = useRef(false);
-  const skipFirstWrite = useRef({
-    featureRequests: true,
-    pageSpecs: true,
-    createPageSpecs: true,
-    savedTableRows: true,
-    pageWizardIntents: true,
-  });
 
   useEffect(() => {
-    setNavState(getNavigation());
-    let loadedRequests: FeatureRequest[] = [];
-    try {
-      const storedRequests = localStorage.getItem("phoenix-feature-requests");
-      if (storedRequests) {
-        loadedRequests = JSON.parse(storedRequests);
-        setFeatureRequests(loadedRequests);
-      }
-      const storedSpecs = localStorage.getItem("phoenix-page-specs");
-      if (storedSpecs) setPageSpecs(JSON.parse(storedSpecs));
-      const storedCreateSpecs = localStorage.getItem("phoenix-create-page-specs");
-      if (storedCreateSpecs) setCreatePageSpecs(JSON.parse(storedCreateSpecs));
-      const storedRows = localStorage.getItem("phoenix-saved-table-rows");
-      if (storedRows) setSavedTableRows(JSON.parse(storedRows));
-      const storedWizardIntents = localStorage.getItem("phoenix-page-wizard-intents");
-      if (storedWizardIntents) setPageWizardIntents(JSON.parse(storedWizardIntents));
-    } catch {}
-
-    try {
-      const pendingRaw = localStorage.getItem("phoenix-pending-wizard-intent");
-      console.log("[Phoenix] Checking pending intent:", pendingRaw ? "FOUND" : "NOT FOUND");
-      if (pendingRaw) {
-        localStorage.removeItem("phoenix-pending-wizard-intent");
-        const parsed = JSON.parse(pendingRaw) as
-          | WizardIntent
-          | { intent: WizardIntent; replaceRequestId?: string; editApprovedPageId?: string };
-        const intent = parsed && typeof parsed === "object" && "intent" in parsed
-          ? (parsed as { intent: WizardIntent }).intent
-          : (parsed as WizardIntent);
-        const replaceRequestId = parsed && typeof parsed === "object" && "intent" in parsed && "replaceRequestId" in parsed
-          ? String((parsed as { replaceRequestId?: string }).replaceRequestId || "")
-          : "";
-        const editApprovedPageId = parsed && typeof parsed === "object" && "intent" in parsed && "editApprovedPageId" in parsed
-          ? String((parsed as { editApprovedPageId?: string }).editApprovedPageId || "")
-          : "";
-
-        if (editApprovedPageId && intent) {
-          const spec = buildSpecFromIntent(intent);
-          const createSpec = buildCreatePageSpec(intent);
-          setPageSpecs(prev => ({ ...prev, [editApprovedPageId]: spec }));
-          if (createSpec) {
-            setCreatePageSpecs(prev => ({ ...prev, [editApprovedPageId]: createSpec }));
-          }
-          setPageWizardIntents(prev => ({ ...prev, [editApprovedPageId]: intent }));
-          setNavState(prev => {
-            const next = updatePageLabel(prev, editApprovedPageId, intent.title);
-            saveNavigation(next);
-            return next;
-          });
-          setActivePage(editApprovedPageId);
-          setPreviewingRequest(null);
+    const run = async () => {
+      let loadedRequests: FeatureRequest[] = [];
+      let loadedNav: { sections: NavSection[] } = { sections: DEFAULT_SECTIONS };
+      try {
+        const res = await fetch("/api/phoenix-store", { cache: "no-store" });
+        if (res.ok) {
+          const remote = (await res.json()) as PhoenixStoreSnapshot;
+          loadedNav = (remote.navState ?? { sections: DEFAULT_SECTIONS }) as { sections: NavSection[] };
+          setNavState(loadedNav);
+          setPageSpecs(remote.pageSpecs ?? {});
+          setCreatePageSpecs(remote.createPageSpecs ?? {});
+          setSavedTableRows(remote.savedTableRows ?? {});
+          setPageWizardIntents(remote.pageWizardIntents ?? {});
+          loadedRequests = (remote.featureRequests ?? []) as FeatureRequest[];
+          setFeatureRequests(loadedRequests);
         } else {
-          console.log("[Phoenix] Parsed intent:", {
-            title: intent.title,
-            replaceRequestId: replaceRequestId || undefined,
-            tableColumns: intent.selectedFields?.tableColumns?.length,
-            columns: intent.selectedFields?.tableColumns?.map(c => c.label),
-            actions: Object.entries(intent.rowActions || {}).filter(([, v]) => v).map(([k]) => k),
-            sections: intent.createPageConfig?.sections?.length,
-            propertiesFields: intent.createPageConfig?.propertiesPanel?.sections?.flatMap((s: { fields: Array<{ label: string }> }) => s.fields.map(f => f.label)),
-          });
-          const nav = getNavigation();
-          const pageId = titleToFeatureId(intent.title);
-          const spec = buildSpecFromIntent(intent);
-          const createSpec = buildCreatePageSpec(intent);
-          const actionCount = Object.values(intent.rowActions).filter(Boolean).length;
-          const parentLabel = intent.navigation.isNewSection
-            ? intent.navigation.newSectionName
-            : nav.sections.find((s: NavSection) => s.id === intent.navigation.parentSection)?.label || intent.navigation.parentSection || "";
+          setNavState({ sections: DEFAULT_SECTIONS });
+        }
+      } catch {
+        setNavState({ sections: DEFAULT_SECTIONS });
+      }
 
-          const baseRequest: Omit<FeatureRequest, "id" | "createdAt"> = {
-            pageId,
-            title: intent.title,
-            description: intent.description,
-            navigation: intent.navigation,
-            parentSectionLabel: parentLabel,
-            spec,
-            createPageSpec: createSpec!,
-            wizardIntent: intent,
-            columnCount: intent.selectedFields.tableColumns.length,
-            actionCount,
-          };
+      try {
+        const pendingRaw = localStorage.getItem("phoenix-pending-wizard-intent");
+        if (pendingRaw) {
+          localStorage.removeItem("phoenix-pending-wizard-intent");
+          const parsed = JSON.parse(pendingRaw) as
+            | WizardIntent
+            | { intent: WizardIntent; replaceRequestId?: string; editApprovedPageId?: string };
+          const intent = parsed && typeof parsed === "object" && "intent" in parsed
+            ? (parsed as { intent: WizardIntent }).intent
+            : (parsed as WizardIntent);
+          const replaceRequestId = parsed && typeof parsed === "object" && "intent" in parsed && "replaceRequestId" in parsed
+            ? String((parsed as { replaceRequestId?: string }).replaceRequestId || "")
+            : "";
+          const editApprovedPageId = parsed && typeof parsed === "object" && "intent" in parsed && "editApprovedPageId" in parsed
+            ? String((parsed as { editApprovedPageId?: string }).editApprovedPageId || "")
+            : "";
 
-          let updatedRequests: FeatureRequest[];
-          if (replaceRequestId) {
-            const idx = loadedRequests.findIndex(r => r.id === replaceRequestId);
-            if (idx >= 0) {
-              const prev = loadedRequests[idx];
-              updatedRequests = [...loadedRequests];
-              updatedRequests[idx] = {
-                ...prev,
-                ...baseRequest,
-                id: prev.id,
-                createdAt: prev.createdAt,
-              };
+          if (editApprovedPageId && intent) {
+            const spec = buildSpecFromIntent(intent);
+            const createSpec = buildCreatePageSpec(intent);
+            setPageSpecs(prev => ({ ...prev, [editApprovedPageId]: spec }));
+            if (createSpec) {
+              setCreatePageSpecs(prev => ({ ...prev, [editApprovedPageId]: createSpec }));
+            }
+            setPageWizardIntents(prev => ({ ...prev, [editApprovedPageId]: intent }));
+            setNavState(prev => updatePageLabel(prev, editApprovedPageId, intent.title));
+            setActivePage(editApprovedPageId);
+            setPreviewingRequest(null);
+          } else {
+            const pageId = titleToFeatureId(intent.title);
+            const spec = buildSpecFromIntent(intent);
+            const createSpec = buildCreatePageSpec(intent);
+            const actionCount = Object.values(intent.rowActions).filter(Boolean).length;
+            const parentLabel = intent.navigation.isNewSection
+              ? intent.navigation.newSectionName
+              : (loadedNav.sections.find((s: NavSection) => s.id === intent.navigation.parentSection)?.label || intent.navigation.parentSection || "");
+
+            const baseRequest: Omit<FeatureRequest, "id" | "createdAt"> = {
+              pageId,
+              title: intent.title,
+              description: intent.description,
+              navigation: intent.navigation,
+              parentSectionLabel: parentLabel,
+              spec,
+              createPageSpec: createSpec!,
+              wizardIntent: intent,
+              columnCount: intent.selectedFields.tableColumns.length,
+              actionCount,
+            };
+
+            let updatedRequests: FeatureRequest[];
+            if (replaceRequestId) {
+              const idx = loadedRequests.findIndex(r => r.id === replaceRequestId);
+              if (idx >= 0) {
+                const prev = loadedRequests[idx];
+                updatedRequests = [...loadedRequests];
+                updatedRequests[idx] = {
+                  ...prev,
+                  ...baseRequest,
+                  id: prev.id,
+                  createdAt: prev.createdAt,
+                };
+              } else {
+                updatedRequests = [{ id: `fr-${Date.now()}`, createdAt: new Date().toISOString(), ...baseRequest }, ...loadedRequests];
+              }
             } else {
               updatedRequests = [{ id: `fr-${Date.now()}`, createdAt: new Date().toISOString(), ...baseRequest }, ...loadedRequests];
             }
-          } else {
-            updatedRequests = [{ id: `fr-${Date.now()}`, createdAt: new Date().toISOString(), ...baseRequest }, ...loadedRequests];
+
+            setFeatureRequests(updatedRequests);
           }
-
-          setFeatureRequests(updatedRequests);
-          localStorage.setItem("phoenix-feature-requests", JSON.stringify(updatedRequests));
         }
+      } catch {
+        // ignore parse errors
       }
-    } catch {}
 
-    hydrated.current = true;
+      hydrated.current = true;
+    };
+    void run();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!hydrated.current) return;
-    if (skipFirstWrite.current.featureRequests) {
-      skipFirstWrite.current.featureRequests = false;
-      return;
-    }
-    localStorage.setItem("phoenix-feature-requests", JSON.stringify(featureRequests));
-  }, [featureRequests]);
-
-  useEffect(() => {
-    if (!hydrated.current) return;
-    if (skipFirstWrite.current.savedTableRows) {
-      skipFirstWrite.current.savedTableRows = false;
-      return;
-    }
-    localStorage.setItem("phoenix-saved-table-rows", JSON.stringify(savedTableRows));
-  }, [savedTableRows]);
-
-  useEffect(() => {
-    if (!hydrated.current) return;
-    if (skipFirstWrite.current.pageSpecs) {
-      skipFirstWrite.current.pageSpecs = false;
-      return;
-    }
-    localStorage.setItem("phoenix-page-specs", JSON.stringify(pageSpecs));
-  }, [pageSpecs]);
-
-  useEffect(() => {
-    if (!hydrated.current) return;
-    if (skipFirstWrite.current.createPageSpecs) {
-      skipFirstWrite.current.createPageSpecs = false;
-      return;
-    }
-    localStorage.setItem("phoenix-create-page-specs", JSON.stringify(createPageSpecs));
-  }, [createPageSpecs]);
-
-  useEffect(() => {
-    if (!hydrated.current) return;
-    if (skipFirstWrite.current.pageWizardIntents) {
-      skipFirstWrite.current.pageWizardIntents = false;
-      return;
-    }
-    localStorage.setItem("phoenix-page-wizard-intents", JSON.stringify(pageWizardIntents));
-  }, [pageWizardIntents]);
+    const payload: PhoenixStoreSnapshot = {
+      navState,
+      pageSpecs,
+      createPageSpecs,
+      savedTableRows,
+      pageWizardIntents,
+      featureRequests: featureRequests as PhoenixStoreSnapshot["featureRequests"],
+      updatedAt: new Date().toISOString(),
+    };
+    void fetch("/api/phoenix-store", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }, [navState, pageSpecs, createPageSpecs, savedTableRows, pageWizardIntents, featureRequests]);
 
   const openApprovedPageInWizard = useCallback(() => {
     if (!activePage) return;
@@ -1466,7 +1425,14 @@ export default function PhoenixPage() {
       setPageWizardIntents(prev => ({ ...prev, [request.pageId]: request.wizardIntent! }));
     }
     setNavState(updated);
-    saveNavigation(updated);
+    setSavedTableRows(prev => {
+      const previewKey = `preview-${request.pageId}`;
+      if (!prev[previewKey]) return prev;
+      const merged = [...(prev[request.pageId] || []), ...prev[previewKey]];
+      const next = { ...prev, [request.pageId]: merged };
+      delete next[previewKey];
+      return next;
+    });
     setActivePage(request.pageId);
     setFeatureRequests(prev => prev.filter(r => r.id !== request.id));
   }, [navState]);
@@ -1493,7 +1459,7 @@ export default function PhoenixPage() {
             type="button"
             onClick={() => setDebugResetOpen(true)}
             className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-[var(--color-base-stroke)] text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:border-[var(--color-status-error)]/40 hover:bg-[var(--color-status-error)]/5 transition-colors"
-            title="Скинути всі апрувнуті сторінки, спеки таблиць, create pages, збережені рядки та чергу запитів (localStorage)"
+            title="Reset approved pages, specs, saved rows, and feature request queue"
           >
             Debug reset
           </button>

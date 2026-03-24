@@ -1,0 +1,115 @@
+{
+  "navState": {
+    "sections": [
+      {
+        "id": "audiences",
+        "label": "Audiences",
+        "icon": "audiences",
+        "children": []
+      },
+      {
+        "id": "push-chat",
+        "label": "Push & Chat",
+        "icon": "chat",
+        "children": []
+      },
+      {
+        "id": "banners",
+        "label": "Banners",
+        "icon": "banners",
+        "children": []
+      },
+      {
+        "id": "gifts",
+        "label": "Gifts",
+        "icon": "gifts",
+        "children": [
+          {
+            "id": "gifts-manager",
+            "label": "Gifts Manager",
+            "parentId": "gifts"
+          },
+          {
+            "id": "custom-gifts",
+            "label": "Custom Gifts",
+            "parentId": "gifts"
+          },
+          {
+            "id": "gift-row-on-screen",
+            "label": "Gift Row on Screen",
+            "parentId": "gifts"
+          },
+          {
+            "id": "gift-drawers",
+            "label": "Gift Drawers",
+            "parentId": "gifts"
+          },
+          {
+            "id": "gift-challenge",
+            "label": "Gift Challenge",
+            "parentId": "gifts"
+          },
+          {
+            "id": "daily-quest",
+            "label": "Daily Quest",
+            "parentId": "gifts"
+          }
+        ]
+      },
+      {
+        "id": "in-stream-message",
+        "label": "In-Stream Message",
+        "icon": "chat",
+        "children": []
+      },
+      {
+        "id": "bottom-sheets",
+        "label": "Bottom Sheets",
+        "icon": "banners",
+        "children": []
+      },
+      {
+        "id": "in-app-offers",
+        "label": "In-App Offers",
+        "icon": "gifts",
+        "children": []
+      },
+      {
+        "id": "features",
+        "label": "Features",
+        "icon": "features",
+        "children": []
+      },
+      {
+        "id": "tags",
+        "label": "Tags",
+        "icon": "tags",
+        "children": []
+      },
+      {
+        "id": "calendar",
+        "label": "Calendar",
+        "icon": "calendar",
+        "children": []
+      },
+      {
+        "id": "audit-log",
+        "label": "Audit Log",
+        "icon": "history",
+        "children": []
+      },
+      {
+        "id": "history",
+        "label": "History",
+        "icon": "history",
+        "children": []
+      }
+    ]
+  },
+  "pageSpecs": {},
+  "createPageSpecs": {},
+  "savedTableRows": {},
+  "pageWizardIntents": {},
+  "featureRequests": [],
+  "updatedAt": "2026-03-24T09:19:18.504Z"
+}
