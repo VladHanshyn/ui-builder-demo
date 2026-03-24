@@ -22,6 +22,9 @@ import type {
 import type { NavigationConfig } from "@/ui-generator";
 import type { PhoenixStoreSnapshot } from "@/lib/phoenixStore";
 
+/** Full snapshot when deployed on Vercel without Redis (demo: survives F5 in this browser). */
+const PHOENIX_CLIENT_SNAPSHOT_KEY = "phoenix-client-snapshot-v1";
+
 /** Local-only keys (wizard handoff + backward compatibility cleanup). */
 const PHOENIX_CLEARABLE_STORAGE_KEYS = [
   "phoenix-page-specs",
@@ -30,6 +33,7 @@ const PHOENIX_CLEARABLE_STORAGE_KEYS = [
   "phoenix-feature-requests",
   "phoenix-pending-wizard-intent",
   "phoenix-page-wizard-intents",
+  PHOENIX_CLIENT_SNAPSHOT_KEY,
 ] as const;
 
 // ============================================
@@ -899,6 +903,13 @@ export default function PhoenixPage() {
   /** When set, create form is in edit mode for this row; Save & Close updates instead of appending */
   const [editingRow, setEditingRow] = useState<{ pageId: string; rowIndex: number } | null>(null);
   const [debugResetOpen, setDebugResetOpen] = useState(false);
+  /**
+   * After first GET /api/phoenix-store (X-Phoenix-Persist). `pending` until then.
+   * Not listed in the autosave useEffect deps (use ref) so dependency array length stays stable for React.
+   */
+  const [persistMode, setPersistMode] = useState<"redis" | "vercel-ephemeral" | "file" | "pending">("pending");
+  const persistModeRef = useRef(persistMode);
+  persistModeRef.current = persistMode;
 
   const csvInputRef = useRef<HTMLInputElement>(null);
 
@@ -991,8 +1002,25 @@ export default function PhoenixPage() {
       let loadedNav: { sections: NavSection[] } = { sections: DEFAULT_SECTIONS };
       try {
         const res = await fetch("/api/phoenix-store", { cache: "no-store" });
+        const headerMode = res.headers.get("X-Phoenix-Persist") as "redis" | "vercel-ephemeral" | "file" | null;
+        const mode: "redis" | "vercel-ephemeral" | "file" =
+          headerMode === "redis" || headerMode === "vercel-ephemeral" || headerMode === "file"
+            ? headerMode
+            : "file";
+        setPersistMode(mode);
+
         if (res.ok) {
-          const remote = (await res.json()) as PhoenixStoreSnapshot;
+          let remote = (await res.json()) as PhoenixStoreSnapshot;
+          if (mode === "vercel-ephemeral") {
+            try {
+              const localRaw = localStorage.getItem(PHOENIX_CLIENT_SNAPSHOT_KEY);
+              if (localRaw) {
+                remote = JSON.parse(localRaw) as PhoenixStoreSnapshot;
+              }
+            } catch {
+              /* keep server snapshot */
+            }
+          }
           loadedNav = (remote.navState ?? { sections: DEFAULT_SECTIONS }) as { sections: NavSection[] };
           setNavState(loadedNav);
           setPageSpecs(remote.pageSpecs ?? {});
@@ -1002,9 +1030,11 @@ export default function PhoenixPage() {
           loadedRequests = (remote.featureRequests ?? []) as FeatureRequest[];
           setFeatureRequests(loadedRequests);
         } else {
+          setPersistMode("file");
           setNavState({ sections: DEFAULT_SECTIONS });
         }
       } catch {
+        setPersistMode("file");
         setNavState({ sections: DEFAULT_SECTIONS });
       }
 
@@ -1092,6 +1122,8 @@ export default function PhoenixPage() {
 
   useEffect(() => {
     if (!hydrated.current) return;
+    const mode = persistModeRef.current;
+    if (mode === "pending") return;
     const payload: PhoenixStoreSnapshot = {
       navState,
       pageSpecs,
@@ -1101,6 +1133,14 @@ export default function PhoenixPage() {
       featureRequests: featureRequests as PhoenixStoreSnapshot["featureRequests"],
       updatedAt: new Date().toISOString(),
     };
+    if (mode === "vercel-ephemeral") {
+      try {
+        localStorage.setItem(PHOENIX_CLIENT_SNAPSHOT_KEY, JSON.stringify(payload));
+      } catch {
+        /* quota / private mode */
+      }
+      return;
+    }
     void fetch("/api/phoenix-store", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },

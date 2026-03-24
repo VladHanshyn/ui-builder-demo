@@ -1,0 +1,22 @@
+Campaign_Name,Status,Reward_Type,Reward_Amount,Threshold_Range_Limit_Amount,Threshold_Range_Limit_Days,Threshold_Total_Amount,Max_Claims,Cooldown_Value,Cooldown_Unit,Comments,End_Date,Campaign_ID,Campaign_Deeplink
+Email Promotion 2025,Inactive,Coins,300,10000,14,,1,24,Hour(s),Перша хвиля email-акції для повернення в гру.,04.03.2025,CMP-EML-2025-001,phoenix://campaign/cmp-eml-2025-001
+Email Welcome Series A,Live,Coins,150,5000,7,,1,12,Hour(s),Ланцюг листів після реєстрації — одноразова нагорода.,15.03.2025,CMP-EML-2025-002,phoenix://campaign/cmp-eml-2025-002
+Email Winback Q1,Live,Coins,500,25000,30,,2,48,Hour(s),Відновлення неактивних з подвійним лімітом клеймів.,31.03.2025,CMP-EML-2025-003,phoenix://campaign/cmp-eml-2025-003
+Newsletter Bonus March,Inactive,Gifts,1,8000,10,,1,72,Hour(s),Подарунок за підписку на розсилку (1 gift).,20.03.2025,CMP-EML-2025-004,phoenix://campaign/cmp-eml-2025-004
+Diamond Drop Email,Live,Diamonds,50,15000,21,,1,6,Hour(s),Обмежена пропозиція з алмазами з листа.,10.04.2025,CMP-EML-2025-005,phoenix://campaign/cmp-eml-2025-005
+Reengagement 48h,Live,Coins,200,,,50000,1,1,Day(s),Поріг за Total amount замість range; кулдаун у днях.,05.04.2025,CMP-EML-2025-006,phoenix://campaign/cmp-eml-2025-006
+Flash Email Friday,Inactive,Coins,1000,50000,3,,1,0,Hour(s),Коротке вікно без кулдауну між клеймами (0 год).,07.03.2025,CMP-EML-2025-007,phoenix://campaign/cmp-eml-2025-007
+Segment VIP Email,Live,Diamonds,120,40000,14,,3,12,Hour(s),VIP-сегмент — до 3 клеймів за період.,30.04.2025,CMP-EML-2025-008,phoenix://campaign/cmp-eml-2025-008
+Localized DE Promo,Live,Coins,250,12000,14,,1,24,Hour(s),Німецькомовна розсилка; ті самі правила нагороди.,22.03.2025,CMP-EML-2025-009,phoenix://campaign/cmp-eml-2025-009
+Localized FR Promo,Inactive,Coins,250,12000,14,,1,24,Hour(s),Французькомовна копія для A/B тесту копірайту.,22.03.2025,CMP-EML-2025-010,phoenix://campaign/cmp-eml-2025-010
+Birthday Email Reward,Live,Gifts,2,6000,365,,1,168,Hour(s),Річний цикл; gift x2; тижневий кулдаун після клейму.,31.12.2025,CMP-EML-2025-011,phoenix://campaign/cmp-eml-2025-011
+Cart Abandon Email,Live,Coins,75,3000,5,,1,48,Hour(s),Тригер після незавершеної покупки з листа.,01.05.2025,CMP-EML-2025-012,phoenix://campaign/cmp-eml-2025-012
+Survey Completion Bonus,Inactive,Coins,400,20000,60,,1,720,Hour(s),Нагорода за опитування; довгий кулдаун (720 год).,15.06.2025,CMP-EML-2025-013,phoenix://campaign/cmp-eml-2025-013
+Referral Invite Email,Live,Coins,600,18000,28,,5,24,Hour(s),До 5 клеймів за запрошених друзів з email-ланцюга.,30.06.2025,CMP-EML-2025-014,phoenix://campaign/cmp-eml-2025-014
+Seasonal Spring Coins,Live,Coins,320,9000,12,,1,12,Hour(s),Весняна кампанія в розсилці та в апці.,19.03.2025,CMP-EML-2025-015,phoenix://campaign/cmp-eml-2025-015
+Low Balance Nudge,Live,Coins,50,2500,7,,2,6,Hour(s),Лист при низькому балансі — частіший кулдаун.,28.02.2025,CMP-EML-2025-016,phoenix://campaign/cmp-eml-2025-016
+High Roller Email,Inactive,Diamonds,200,100000,7,,1,48,Hour(s),Високий range limit для великих платників.,12.05.2025,CMP-EML-2025-017,phoenix://campaign/cmp-eml-2025-017
+Mini Reward Drip,Live,Coins,25,1500,1,,7,1,Hour(s),Щоденний міні-бонус з листа; 7 клеймів max.,14.03.2025,CMP-EML-2025-018,phoenix://campaign/cmp-eml-2025-018
+Compliance Double Opt-in,Inactive,Coins,100,5000,30,,1,24,Hour(s),Нагорода після підтвердження email (double opt-in).,01.01.2026,CMP-EML-2025-019,phoenix://campaign/cmp-eml-2025-019
+Sunset Legacy List,Inactive,Coins,500,,,100000,1,168,Hour(s),Останній бонус для старого сегменту розсилки.,30.04.2025,CMP-EML-2025-020,phoenix://campaign/cmp-eml-2025-020
+Email Promotion 2025 B,Live,Coins,300,10000,14,,1,24,Hour(s),Контрольна гілка A/B проти першого рядка.,04.03.2025,CMP-EML-2025-021,phoenix://campaign/cmp-eml-2025-021

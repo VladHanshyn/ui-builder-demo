@@ -1,61 +1,27 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { NextResponse } from "next/server";
 import { DEFAULT_SECTIONS } from "@/ui-generator/navigationTree";
 import type { PhoenixStoreSnapshot } from "@/lib/phoenixStore";
-import { PHOENIX_STORE_FILE } from "@/lib/phoenixStore";
+import {
+  emptyPhoenixStore,
+  phoenixPersistMode,
+  readPhoenixStore,
+  writePhoenixStore,
+} from "@/lib/phoenixStoreServer";
 
 export const runtime = "nodejs";
 
-const storePath = path.join(process.cwd(), PHOENIX_STORE_FILE);
-
-function emptyStore(): PhoenixStoreSnapshot {
-  return {
-    navState: { sections: DEFAULT_SECTIONS },
-    pageSpecs: {},
-    createPageSpecs: {},
-    savedTableRows: {},
-    pageWizardIntents: {},
-    featureRequests: [],
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-async function readStore(): Promise<PhoenixStoreSnapshot> {
-  try {
-    const raw = await fs.readFile(storePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<PhoenixStoreSnapshot>;
-    return {
-      ...emptyStore(),
-      ...parsed,
-      navState: parsed.navState?.sections ? parsed.navState : { sections: DEFAULT_SECTIONS },
-      pageSpecs: parsed.pageSpecs ?? {},
-      createPageSpecs: parsed.createPageSpecs ?? {},
-      savedTableRows: parsed.savedTableRows ?? {},
-      pageWizardIntents: parsed.pageWizardIntents ?? {},
-      featureRequests: parsed.featureRequests ?? [],
-      updatedAt: parsed.updatedAt ?? new Date().toISOString(),
-    };
-  } catch {
-    return emptyStore();
-  }
-}
-
-async function writeStore(nextStore: PhoenixStoreSnapshot): Promise<void> {
-  await fs.mkdir(path.dirname(storePath), { recursive: true });
-  await fs.writeFile(storePath, JSON.stringify(nextStore, null, 2), "utf8");
-}
-
 export async function GET() {
-  const store = await readStore();
-  return NextResponse.json(store);
+  const store = await readPhoenixStore();
+  const res = NextResponse.json(store);
+  res.headers.set("X-Phoenix-Persist", phoenixPersistMode());
+  return res;
 }
 
 export async function PUT(req: Request) {
   try {
     const body = (await req.json()) as Partial<PhoenixStoreSnapshot>;
     const nextStore: PhoenixStoreSnapshot = {
-      ...emptyStore(),
+      ...emptyPhoenixStore(),
       ...body,
       navState: body.navState?.sections ? body.navState : { sections: DEFAULT_SECTIONS },
       pageSpecs: body.pageSpecs ?? {},
@@ -65,7 +31,7 @@ export async function PUT(req: Request) {
       featureRequests: body.featureRequests ?? [],
       updatedAt: new Date().toISOString(),
     };
-    await writeStore(nextStore);
+    await writePhoenixStore(nextStore);
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
@@ -73,7 +39,7 @@ export async function PUT(req: Request) {
 }
 
 export async function DELETE() {
-  const cleared = emptyStore();
-  await writeStore(cleared);
+  const cleared = emptyPhoenixStore();
+  await writePhoenixStore(cleared);
   return NextResponse.json({ ok: true });
 }
