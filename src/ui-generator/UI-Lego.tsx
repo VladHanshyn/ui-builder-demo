@@ -61,17 +61,6 @@ import { getNavigation as getNavigationState, getSectionsForPicker as getSection
 import type { FieldRef } from "./fieldCatalog";
 
 // ============================================
-// TYPES
-// ============================================
-
-interface WizardModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (intent: WizardIntent) => void;
-  initialIntent?: WizardIntent | null;
-}
-
-// ============================================
 // HELPERS
 // ============================================
 
@@ -90,6 +79,74 @@ function mapCreateFieldType(type: string): FieldRef["dataType"] {
   }
 }
 
+/** Date-time fields from Details (properties panel), same source as migrateDetailsItems. */
+function listDetailsPanelDateTimeFields(panel: CreatePageConfig["propertiesPanel"]): Array<{ id: string; label: string }> {
+  if (Array.isArray(panel.detailsItems) && panel.detailsItems.length > 0) {
+    return (panel.detailsItems as Array<{ kind?: string; type?: string; id: string; label: string }>)
+      .filter((i) => i.kind === "field" && i.type === "date-time")
+      .map((i) => ({ id: i.id, label: i.label }));
+  }
+  const out: Array<{ id: string; label: string }> = [];
+  for (const section of panel.sections) {
+    for (const f of section.fields) {
+      if (f.type === "date-time") out.push({ id: f.id, label: f.label });
+    }
+  }
+  return out;
+}
+
+/** Ids of fields that belong to the Details (properties) panel — used to allow only that Title in table columns. */
+function collectDetailsPropertyFieldIds(panel: CreatePageConfig["propertiesPanel"]): Set<string> {
+  const ids = new Set<string>();
+  if (Array.isArray(panel.detailsItems) && panel.detailsItems.length > 0) {
+    for (const item of panel.detailsItems) {
+      if (item && typeof item === "object" && "kind" in item && (item as { kind: string }).kind === "field") {
+        ids.add(String((item as { id: string }).id));
+      }
+    }
+  } else {
+    for (const sec of panel.sections) {
+      for (const f of sec.fields) {
+        ids.add(f.id);
+      }
+    }
+  }
+  return ids;
+}
+
+function normalizeLabelForTitleMatch(label: string): string {
+  return String(label ?? "")
+    .replace(/\u00a0/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Default first table column: Details primary field — prefer stable id `title` (label may be renamed to "Name", etc.),
+ * else field whose label is still "Title", else first Details field.
+ */
+function pickPrimaryDetailsFieldIdForTable(
+  detailsFields: Array<{ id: string; label: string; type?: string }>,
+): string | null {
+  if (!detailsFields.length) return null;
+  const byStableTitleId = detailsFields.find((f) => f.id.toLowerCase() === "title");
+  if (byStableTitleId) return byStableTitleId.id;
+  const byTitleLabel = detailsFields.find((f) => normalizeLabelForTitleMatch(f.label) === "title");
+  if (byTitleLabel) return byTitleLabel.id;
+  return detailsFields[0].id;
+}
+
+/** Drop duplicate "Title" options from Main (and anywhere else) — keep only the Title field defined in Details. */
+function filterTableFieldRefsToSingleDetailsTitle(
+  refs: FieldRef[],
+  detailsFieldIds: Set<string>,
+): FieldRef[] {
+  return refs.filter((ref) => {
+    if (normalizeLabelForTitleMatch(ref.label) !== "title") return true;
+    return detailsFieldIds.has(ref.id);
+  });
+}
+
 function extractFieldsFromConfig(config: CreatePageConfig): FieldRef[] {
   const result: FieldRef[] = [];
   const seen = new Set<string>();
@@ -103,6 +160,29 @@ function extractFieldsFromConfig(config: CreatePageConfig): FieldRef[] {
   for (const section of config.propertiesPanel.sections) {
     for (const f of section.fields) {
       addField(f.id, f.label, mapCreateFieldType(f.type));
+    }
+  }
+
+  // Virtual Duration when Details has two date-time fields (e.g. Start / End)
+  {
+    const dt = listDetailsPanelDateTimeFields(config.propertiesPanel);
+    if (dt.length >= 2 && !seen.has("duration")) {
+      const startRe = /start|почат|from|begin|початок/i;
+      const endRe = /end|кінець|finish|until|кінець/i;
+      const start = dt.find((f) => startRe.test(f.label)) ?? dt[0];
+      const end =
+        dt.find((f) => endRe.test(f.label) && f.id !== start.id) ??
+        dt.find((f) => f.id !== start.id);
+      if (end && start.id !== end.id) {
+        seen.add("duration");
+        result.push({
+          id: "duration",
+          label: "Duration",
+          dataType: "duration",
+          durationStartFieldId: start.id,
+          durationEndFieldId: end.id,
+        });
+      }
     }
   }
 
@@ -137,8 +217,11 @@ function extractFieldsFromConfig(config: CreatePageConfig): FieldRef[] {
   addField("created-at", "Created at", "date");
   addField("updated-at", "Updated at", "date");
   addField("created-by", "Created by", "user");
+  addField("updated-by", "Updated by", "user");
+  addField("live", "Live", "live");
 
-  return result;
+  const detailsFieldIds = collectDetailsPropertyFieldIds(config.propertiesPanel);
+  return filterTableFieldRefsToSingleDetailsTitle(result, detailsFieldIds);
 }
 
 // ============================================
@@ -351,363 +434,13 @@ function WizardHeader({ intent, updateIntent, onClose, firstFocusableRef, highli
 }
 
 // ============================================
-// WIZARD MODAL COMPONENT
-// ============================================
-
-export function WizardModal({
-  isOpen,
-  onClose,
-  onSubmit,
-  initialIntent,
-}: WizardModalProps) {
-  const [mounted, setMounted] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [step1ActiveTab, setStep1ActiveTab] = useState<"sections" | "properties">("sections");
-  const [intent, setIntent] = useState<WizardIntent>(
-    initialIntent || createDefaultWizardIntent()
-  );
-  const modalRef = useRef<HTMLDivElement>(null);
-  const firstFocusableRef = useRef<HTMLButtonElement>(null);
-  const contentScrollRef = useRef<HTMLDivElement>(null);
-  /** Зберігається тільки на pointerdown; відновлюємо при focusin та після оновлення intent (з clamp). */
-  const restoreScrollTopRef = useRef(0);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      setCurrentStep(0);
-      setIntent(initialIntent || createDefaultWizardIntent());
-    }
-  }, [isOpen, initialIntent]);
-
-  useEffect(() => {
-    const el = contentScrollRef.current;
-    if (!el) return;
-    const restore = () => {
-      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-      const safe = Math.min(restoreScrollTopRef.current, maxScroll);
-      el.scrollTop = safe;
-    };
-    restore();
-    requestAnimationFrame(restore);
-    setTimeout(restore, 0);
-  }, [intent]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-
-      if (e.key === "Tab" && modalRef.current) {
-        const focusableElements = modalRef.current.querySelectorAll(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        const firstElement = focusableElements[0] as HTMLElement;
-        const lastElement = focusableElements[
-          focusableElements.length - 1
-        ] as HTMLElement;
-
-        if (e.shiftKey && document.activeElement === firstElement) {
-          e.preventDefault();
-          lastElement?.focus();
-        } else if (!e.shiftKey && document.activeElement === lastElement) {
-          e.preventDefault();
-          firstElement?.focus();
-        }
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    document.body.style.overflow = "hidden";
-
-    setTimeout(() => {
-      firstFocusableRef.current?.focus();
-    }, 50);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "";
-    };
-  }, [isOpen, onClose]);
-
-  const [highlightTitle, setHighlightTitle] = useState(false);
-  const [maxReachedStep, setMaxReachedStep] = useState(0);
-
-  const updateIntent = useCallback((updates: Partial<WizardIntent>) => {
-    setIntent((prev) => ({ ...prev, ...updates }));
-  }, []);
-
-  const isTitleEmpty = !intent.title.trim();
-
-  const canGoNext = useCallback(() => {
-    switch (currentStep) {
-      case 0:
-        return intent.createPageConfig.sections.length === 1;
-      case 1:
-        return intent.selectedFields.tableColumns.length > 0;
-      default:
-        return true;
-    }
-  }, [currentStep, intent.createPageConfig.sections.length, intent.selectedFields.tableColumns.length]);
-
-  const canNavigateToStep = useCallback((target: number) => {
-    if (target === currentStep) return false;
-    if (target <= maxReachedStep) return true;
-    return false;
-  }, [currentStep, maxReachedStep]);
-
-  const autoPopulateTableColumns = useCallback(() => {
-    if ((intent.selectedFields?.tableColumns || []).length > 0) return;
-    const allFields = extractFieldsFromConfig(intent.createPageConfig);
-    const detailsItems = migrateDetailsItems(intent.createPageConfig.propertiesPanel);
-    const detailsFields = detailsItems.filter(di => di.kind === "field") as Array<{ id: string; kind: "field"; label: string; type: string }>;
-    const defaults: FieldRef[] = [];
-    const seen = new Set<string>();
-    const addDefault = (id: string) => {
-      if (seen.has(id)) return;
-      const ref = allFields.find(f => f.id === id);
-      if (ref) { seen.add(id); defaults.push({ ...ref }); }
-    };
-    const titleItem = detailsFields.find(f => f.label.toLowerCase().includes("title"));
-    if (titleItem) addDefault(titleItem.id);
-    for (const df of detailsFields) {
-      if (/\bid\b/i.test(df.label)) addDefault(df.id);
-    }
-    addDefault("created-at");
-    if (defaults.length > 0) {
-      updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: defaults } });
-    }
-  }, [intent, updateIntent]);
-
-  const handleGoToStep = useCallback((target: number) => {
-    if (!canNavigateToStep(target)) return;
-    if (!intent.featureId && intent.title.trim()) {
-      updateIntent({ featureId: titleToFeatureId(intent.title) });
-    }
-    if (currentStep === 0 && target > 0) {
-      autoPopulateTableColumns();
-    }
-    setCurrentStep(target);
-  }, [canNavigateToStep, currentStep, intent.featureId, intent.title, updateIntent, autoPopulateTableColumns]);
-
-  const handleNext = () => {
-    if (currentStep < WIZARD_STEPS.length - 1 && canGoNext()) {
-      if (!intent.featureId && intent.title.trim()) {
-        updateIntent({ featureId: titleToFeatureId(intent.title) });
-      }
-      if (currentStep === 0) {
-        autoPopulateTableColumns();
-      }
-      const nextStep = currentStep + 1;
-      setCurrentStep(nextStep);
-      setMaxReachedStep((prev) => Math.max(prev, nextStep));
-    }
-  };
-
-  const handleBack = () => {
-    if (currentStep > 0) {
-      setCurrentStep((prev) => prev - 1);
-    }
-  };
-
-  const handleSubmit = () => {
-    const finalIntent = { ...intent };
-    if (!finalIntent.featureId && finalIntent.title.trim()) {
-      finalIntent.featureId = titleToFeatureId(finalIntent.title);
-    }
-    console.log("[WizardModal] Submitting intent:", {
-      title: finalIntent.title,
-      featureId: finalIntent.featureId,
-      tableColumns: finalIntent.selectedFields?.tableColumns?.length,
-      actions: Object.entries(finalIntent.rowActions || {}).filter(([, v]) => v).map(([k]) => k),
-      sections: finalIntent.createPageConfig?.sections?.length,
-      propertiesSections: finalIntent.createPageConfig?.propertiesPanel?.sections?.length,
-    });
-    onSubmit(finalIntent);
-    onClose();
-  };
-
-  if (!mounted || !isOpen) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-
-      <div
-        ref={modalRef}
-        className="relative w-[1376px] max-w-[calc(100vw-2rem)] h-[90vh] bg-[var(--color-base-stroke)] border border-[var(--color-base-stroke)] rounded-[32px] shadow-2xl flex flex-col overflow-hidden"
-      >
-        {/* Global Wizard Header */}
-        <WizardHeader intent={intent} updateIntent={updateIntent} onClose={onClose} firstFocusableRef={firstFocusableRef} highlightTitle={highlightTitle} />
-
-        {/* Робоча область */}
-        <div className="flex-1 flex min-h-0 pl-6 pr-2 pb-2 gap-0">
-          {/* Preview Area */}
-          <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep === 0 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
-              {currentStep === 0 && (
-                <AnimatedStep stepKey={0}>
-                  <Step1PreviewArea intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} onTabChange={setStep1ActiveTab} />
-                </AnimatedStep>
-              )}
-              {currentStep >= 1 && currentStep <= 3 && (
-                <SmartTablePreview intent={intent} activeStep={currentStep as 1 | 2 | 3} updateIntent={updateIntent} />
-              )}
-          </div>
-
-          {/* Right Tool Panel */}
-          <div className="relative z-10 w-[465px] min-w-[465px] max-w-[465px] shrink-0 flex flex-col min-h-0 bg-[var(--color-base-surface-primary)] rounded-[24px] overflow-hidden border border-[var(--color-base-stroke)]">
-            {/* Step tabs */}
-            <div className="shrink-0 flex items-center gap-1.5 px-4 pt-4 pb-2">
-              {WIZARD_STEPS.map((step, idx) => {
-                const isActive = currentStep === idx;
-                const canNav = canNavigateToStep(idx);
-                return (
-                  <button
-                    key={step.id}
-                    type="button"
-                    onClick={() => handleGoToStep(idx)}
-                    disabled={!canNav && !isActive}
-                    className={`px-3.5 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
-                      isActive
-                        ? "bg-[var(--color-brand-primary)] text-white"
-                        : canNav
-                          ? "bg-[var(--color-base-surface-secondary)] text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-tertiary)]"
-                          : "bg-[var(--color-base-surface-secondary)] text-[var(--color-base-tertiary)] opacity-50 cursor-not-allowed"
-                    }`}
-                  >
-                    {["Inner Page", "Table Config", "Filters", "Actions"][idx]}
-                  </button>
-                );
-              })}
-            </div>
-            {/* Step info header */}
-            <div className={`shrink-0 px-4 pt-2 ${currentStep === 0 ? "pb-0" : "pb-4 border-b border-[var(--color-base-stroke)]"}`}>
-              <h3 className="text-xl font-medium text-[var(--color-base-primary)] mt-1">
-                {WIZARD_STEPS[currentStep]?.title}
-              </h3>
-              <p className="text-sm text-[var(--color-base-secondary)] mt-1">
-                {WIZARD_STEPS[currentStep]?.description}
-              </p>
-              {currentStep === 0 && (
-                <div className="flex mt-4 border-b border-[var(--color-base-stroke)]">
-                  <button
-                    type="button"
-                    onClick={() => setStep1ActiveTab("sections")}
-                    className={`pb-2.5 mr-6 text-base font-medium transition-colors relative ${
-                      step1ActiveTab === "sections"
-                        ? "text-[var(--color-base-primary)]"
-                        : "text-[var(--color-base-tertiary)] hover:text-[var(--color-base-secondary)]"
-                    }`}
-                  >
-                    Main Section
-                    {step1ActiveTab === "sections" && (
-                      <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-base-primary)] rounded-full" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStep1ActiveTab("properties")}
-                    className={`pb-2.5 text-base font-medium transition-colors relative ${
-                      step1ActiveTab === "properties"
-                        ? "text-[var(--color-base-primary)]"
-                        : "text-[var(--color-base-tertiary)] hover:text-[var(--color-base-secondary)]"
-                    }`}
-                  >
-                    Details Section
-                    {step1ActiveTab === "properties" && (
-                      <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--color-base-primary)] rounded-full" />
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
-            {/* Скроловане тіло */}
-            <div
-              ref={contentScrollRef}
-              className="flex-1 min-h-0 overflow-y-auto pt-4 pb-4"
-              onPointerDownCapture={() => {
-                const el = contentScrollRef.current;
-                if (el) restoreScrollTopRef.current = el.scrollTop;
-              }}
-              onClickCapture={() => {
-                const el = contentScrollRef.current;
-                if (el) restoreScrollTopRef.current = el.scrollTop;
-              }}
-              onFocusCapture={() => {
-                const el = contentScrollRef.current;
-                if (!el) return;
-                const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
-                const safe = Math.min(restoreScrollTopRef.current, maxScroll);
-                const restore = () => { el.scrollTop = safe; };
-                restore();
-                requestAnimationFrame(restore);
-                setTimeout(restore, 0);
-              }}
-            >
-              {currentStep === 0 && (
-                <StepCreatePage intent={intent} updateIntent={updateIntent} activeTab={step1ActiveTab} setActiveTab={setStep1ActiveTab} />
-              )}
-              {currentStep === 1 && (
-                <StepTableColumns intent={intent} updateIntent={updateIntent} />
-              )}
-              {currentStep === 2 && (
-                <div className="mt-4 px-4">
-                  <StepFilters intent={intent} updateIntent={updateIntent} />
-                </div>
-              )}
-              {currentStep === 3 && (
-                <div className="mt-4 px-4">
-                  <StepActions intent={intent} updateIntent={updateIntent} />
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 px-4 py-4 border-t border-[var(--color-base-stroke)] shrink-0">
-              {currentStep > 0 && (
-                <Button variant="secondary" onClick={handleBack} className="flex-1">
-                  Back
-                </Button>
-              )}
-              {currentStep < WIZARD_STEPS.length - 1 ? (
-                <Button onClick={handleNext} disabled={!canGoNext()} className="flex-1">
-                  Next
-                </Button>
-              ) : (
-                <div
-                  className="flex-1"
-                  onMouseEnter={() => { if (isTitleEmpty) setHighlightTitle(true); }}
-                  onMouseLeave={() => setHighlightTitle(false)}
-                >
-                  <Button
-                    onClick={isTitleEmpty ? undefined : handleSubmit}
-                    className={`w-full ${isTitleEmpty && highlightTitle ? "!bg-[var(--color-base-tertiary)] !text-white !pointer-events-none" : ""}`}
-                  >
-                    Request Feature
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-// ============================================
 // WIZARD PAGE COMPONENT (full-page, no modal)
 // ============================================
 
 interface WizardPageProps {
   onSubmit?: (intent: WizardIntent) => void;
   onBack?: () => void;
+  /** Редагування з Phoenix: повний intent + доступ до всіх кроків */
   initialIntent?: WizardIntent | null;
 }
 
@@ -720,8 +453,8 @@ export function WizardPage({
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [step1ActiveTab, setStep1ActiveTab] = useState<"sections" | "properties">("sections");
-  const [intent, setIntent] = useState<WizardIntent>(
-    initialIntent || createDefaultWizardIntent()
+  const [intent, setIntent] = useState<WizardIntent>(() =>
+    initialIntent != null ? initialIntent : createDefaultWizardIntent()
   );
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const restoreScrollTopRef = useRef(0);
@@ -744,6 +477,14 @@ export function WizardPage({
   const [highlightTitle, setHighlightTitle] = useState(false);
   const [maxReachedStep, setMaxReachedStep] = useState(0);
 
+  useEffect(() => {
+    if (initialIntent != null) {
+      setIntent(initialIntent);
+      setCurrentStep(0);
+      setMaxReachedStep(Math.max(0, WIZARD_STEPS.length - 1));
+    }
+  }, [initialIntent]);
+
   const updateIntent = useCallback((updates: Partial<WizardIntent>) => {
     setIntent((prev) => ({ ...prev, ...updates }));
   }, []);
@@ -779,12 +520,15 @@ export function WizardPage({
       const ref = allFields.find(f => f.id === id);
       if (ref) { seen.add(id); defaults.push({ ...ref }); }
     };
-    const titleItem = detailsFields.find(f => f.label.toLowerCase().includes("title"));
-    if (titleItem) addDefault(titleItem.id);
+    const primaryDetailsId = pickPrimaryDetailsFieldIdForTable(detailsFields);
+    if (primaryDetailsId) addDefault(primaryDetailsId);
     for (const df of detailsFields) {
       if (/\bid\b/i.test(df.label)) addDefault(df.id);
     }
     addDefault("created-at");
+    addDefault("created-by");
+    addDefault("updated-at");
+    addDefault("updated-by");
     if (defaults.length > 0) {
       updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: defaults } });
     }
@@ -846,7 +590,7 @@ export function WizardPage({
       {/* Global Wizard Header */}
       <WizardHeader intent={intent} updateIntent={updateIntent} onClose={() => setShowExitConfirm(true)} firstFocusableRef={{ current: null }} highlightTitle={highlightTitle} />
 
-      <div className="flex-1 flex min-h-0 pl-6 pr-2 pb-2 gap-0">
+      <div className="flex-1 flex min-h-0 pl-6 pr-2 pb-2 gap-2">
         {/* Preview Area */}
         <div className={`flex-1 min-w-0 min-h-0 pb-16 ${currentStep === 0 ? "overflow-visible" : "overflow-hidden rounded-xl"}`}>
             {currentStep === 0 && (
@@ -860,7 +604,7 @@ export function WizardPage({
         </div>
 
         {/* Right Tool Panel */}
-        <div className="relative z-10 w-[465px] min-w-[465px] max-w-[465px] shrink-0 flex flex-col min-h-0 bg-[var(--color-base-surface-primary)] rounded-[24px] overflow-hidden border border-[var(--color-base-stroke)]">
+        <div className="relative z-10 w-[420px] min-w-[420px] max-w-[420px] shrink-0 flex flex-col min-h-0 bg-[var(--color-base-surface-primary)] rounded-[24px] overflow-hidden border border-[var(--color-base-stroke)]">
           {/* Step tabs */}
           <div className="shrink-0 flex items-center gap-1.5 px-4 pt-4 pb-2">
             {WIZARD_STEPS.map((step, idx) => {
@@ -1408,6 +1152,89 @@ const PreviewChevronIcon = ({ expanded }: { expanded: boolean }) => (
   </svg>
 );
 
+const PreviewActionButtonLeftIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+/** Прев’ю кнопки в білдері: клік по тексту змінює підпис (текст — окрема кнопка всередині візуального контейнера). */
+function EditablePreviewActionButton({
+  label,
+  onLabelChange,
+  leftIcon = <PreviewActionButtonLeftIcon />,
+}: {
+  label: string;
+  onLabelChange: (next: string) => void;
+  leftIcon?: React.ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(label);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setDraft(label); }, [label]);
+
+  useLayoutEffect(() => {
+    if (!editing) return;
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, [editing]);
+
+  const commit = () => {
+    const next = draft.trim() || "Button";
+    onLabelChange(next);
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    setDraft(label);
+    setEditing(false);
+  };
+
+  const wrapClass =
+    "inline-flex items-center justify-center gap-1 px-3 h-8 rounded-lg font-medium text-sm leading-5 transition-all duration-200 ease-out outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] text-[var(--color-base-primary)] border border-[var(--color-base-stroke)] hover:border-[var(--color-base-tertiary)] hover:shadow-[0_2px_16px_-8px_rgba(0,0,0,0.15),inset_0_-32px_0_0_rgba(255,255,255,0.08)]";
+
+  return (
+    <div className={wrapClass}>
+      {leftIcon ? (
+        <span className="shrink-0 size-5 flex items-center justify-center text-[var(--color-base-primary)] pointer-events-none select-none">
+          {leftIcon}
+        </span>
+      ) : null}
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              cancel();
+            }
+          }}
+          className="min-w-[6ch] max-w-[min(280px,100%)] flex-1 bg-transparent outline-none border-0 border-b border-[var(--color-brand-primary)] px-0 py-0 text-sm font-medium text-[var(--color-base-primary)] placeholder:text-[var(--color-base-tertiary)]"
+          placeholder="Button"
+        />
+      ) : (
+        <button
+          type="button"
+          title="Натисніть, щоб змінити текст"
+          className="min-w-0 max-w-[min(280px,100%)] truncate bg-transparent p-0 m-0 border-0 cursor-text font-inherit text-inherit text-left hover:underline decoration-[var(--color-base-tertiary)] underline-offset-2"
+          onClick={() => setEditing(true)}
+        >
+          {label.trim() ? label : "Button"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface PreviewAccordionItem {
   id: string;
   name: string;
@@ -1673,6 +1500,38 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
       return;
     }
 
+    if (type === "section") {
+      const sectionId = uid("section");
+      const newItem: SectionItem = { id: sectionId, kind: "section", title: label, rowId: sectionId };
+      const next = [...sectionItems];
+      if (atIndex !== undefined && atIndex >= 0) next.splice(atIndex, 0, newItem);
+      else next.push(newItem);
+      setSectionItems(next);
+      return;
+    }
+
+    if (type === "table") {
+      const tableId = uid("table");
+      const col1 = uid("col");
+      const col2 = uid("col");
+      const col3 = uid("col");
+      const row1 = uid("trow");
+      const newItem: SectionItem = {
+        id: tableId, kind: "table", rowId: tableId,
+        columns: [
+          { id: col1, label: "Column 1" },
+          { id: col2, label: "Column 2" },
+          { id: col3, label: "Column 3" },
+        ],
+        rows: [{ id: row1, cells: {} }],
+      };
+      const next = [...sectionItems];
+      if (atIndex !== undefined && atIndex >= 0) next.splice(atIndex, 0, newItem);
+      else next.push(newItem);
+      setSectionItems(next);
+      return;
+    }
+
     const kind = type === "action" ? "action" as const : "field" as const;
     const rowHasAction = joinRowId ? sectionItems.some(i => i.rowId === joinRowId && i.kind === "action") : false;
     const rowHasTextarea = joinRowId ? sectionItems.some(i => i.rowId === joinRowId && i.kind === "field" && i.type === "textarea") : false;
@@ -1685,13 +1544,15 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
     if (effectiveJoinRowId) {
       const rowCount = sectionItems.filter(i => i.rowId === effectiveJoinRowId).length;
       if (rowCount >= 3) return;
-      const lastIdx = sectionItems.findLastIndex(i => i.rowId === effectiveJoinRowId);
-      if (lastIdx !== -1) {
-        const next = [...sectionItems];
-        next.splice(lastIdx + 1, 0, newItem);
-        setSectionItems(next);
-        return;
+      const next = [...sectionItems];
+      if (atIndex !== undefined && atIndex >= 0) {
+        next.splice(atIndex, 0, newItem);
+      } else {
+        const lastIdx = sectionItems.findLastIndex(i => i.rowId === effectiveJoinRowId);
+        next.splice(lastIdx !== -1 ? lastIdx + 1 : next.length, 0, newItem);
       }
+      setSectionItems(next);
+      return;
     }
 
     const next = [...sectionItems];
@@ -1728,6 +1589,21 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
       const next = [...sectionItems];
       next.splice(idx + 1, 0, copy);
       setSectionItems(next);
+    } else if (src.kind === "table") {
+      const clonedCols = src.columns.map(c => ({ ...c, id: uid("col") }));
+      const colMap = new Map(src.columns.map((c, i) => [c.id, clonedCols[i].id]));
+      const clonedRows = src.rows.map(r => {
+        const newCells: Record<string, TableCellDef | null> = {};
+        for (const [oldColId, cell] of Object.entries(r.cells)) {
+          const newColId = colMap.get(oldColId);
+          if (newColId) newCells[newColId] = cell ? { ...cell } : null;
+        }
+        return { id: uid("trow"), cells: newCells };
+      });
+      const copy: SectionItem = { ...src, id: newId, rowId: newRowId, columns: clonedCols, rows: clonedRows };
+      const next = [...sectionItems];
+      next.splice(idx + 1, 0, copy);
+      setSectionItems(next);
     } else {
       const copy: SectionItem = { ...src, id: newId, rowId: newRowId };
       const next = [...sectionItems];
@@ -1740,50 +1616,54 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
     setSectionItems(sectionItems.map(i => i.id === tabsId && i.kind === "tabs" ? updater(i) : i));
   }, [sectionItems, setSectionItems]);
 
-  const addFieldToTab = useCallback((tabsId: string, type: string, label: string, joinRowId?: string, atIndex?: number) => {
-    const fieldId = uid("field");
-    const effectiveRowId = (type === "textarea" || type === "action") ? fieldId : joinRowId || fieldId;
-    const newField: SectionItem = { id: fieldId, kind: "field", label, type, rowId: effectiveRowId };
-    updateTabsItem(tabsId, (ti) => ({
-      ...ti,
-      tabs: ti.tabs.map(t => {
-        if (t.id !== ti.activeTabId) return t;
-        if (joinRowId && effectiveRowId === joinRowId) {
-          const rowCount = t.items.filter(i => i.rowId === joinRowId).length;
-          if (rowCount >= 3) return t;
-          if (t.items.some(i => i.rowId === joinRowId && i.kind === "field" && i.type === "textarea")) return t;
-          const lastIdx = t.items.findLastIndex(i => i.rowId === joinRowId);
-          if (lastIdx !== -1) {
-            const next = [...t.items];
-            next.splice(lastIdx + 1, 0, newField);
-            return { ...t, items: next };
-          }
-        }
-        if (atIndex !== undefined && atIndex >= 0 && atIndex <= t.items.length) {
-          const next = [...t.items];
-          next.splice(atIndex, 0, newField);
-          return { ...t, items: next };
-        }
-        return { ...t, items: [...t.items, newField] };
-      }),
-    }));
+  const updateTableItem = useCallback((tableId: string, updater: (item: Extract<SectionItem, { kind: "table" }>) => SectionItem) => {
+    setSectionItems(sectionItems.map(i => i.id === tableId && i.kind === "table" ? updater(i) : i));
+  }, [sectionItems, setSectionItems]);
+
+  const updateTableInTab = useCallback((tabsId: string, path: string[], tableId: string, updater: (item: Extract<SectionItem, { kind: "table" }>) => SectionItem) => {
+    updateTabsItem(tabsId, (ti) => {
+      if (ti.kind !== "tabs") return ti;
+      return patchTabsAtPath(ti, path, (leaf) => ({
+        ...leaf,
+        tabs: leaf.tabs.map(t => {
+          if (t.id !== leaf.activeTabId) return t;
+          return {
+            ...t,
+            items: t.items.map(i => i.id === tableId && i.kind === "table" ? updater(i) : i),
+          };
+        }),
+      }));
+    });
   }, [updateTabsItem]);
 
-  const removeFieldFromTab = useCallback((tabsId: string, fieldId: string) => {
-    updateTabsItem(tabsId, (ti) => ({
-      ...ti,
-      tabs: ti.tabs.map(t => ({ ...t, items: t.items.filter(i => i.id !== fieldId) })),
-    }));
+  const addFieldToTab = useCallback((tabsId: string, path: string[], type: string, label: string, joinRowId?: string, atIndex?: number) => {
+    updateTabsItem(tabsId, (ti) => {
+      if (ti.kind !== "tabs") return ti;
+      return patchTabsAtPath(ti, path, (leaf) => addFieldToTabsLeaf(leaf, type, label, joinRowId, atIndex));
+    });
   }, [updateTabsItem]);
 
-  const updateFieldInTab = useCallback((tabsId: string, fieldId: string, updates: Partial<SectionItem>) => {
-    updateTabsItem(tabsId, (ti) => ({
-      ...ti,
-      tabs: ti.tabs.map(t => ({
-        ...t,
-        items: t.items.map(i => i.id === fieldId ? { ...i, ...updates } as SectionItem : i),
-      })),
-    }));
+  const removeFieldFromTab = useCallback((tabsId: string, path: string[], fieldId: string) => {
+    updateTabsItem(tabsId, (ti) => {
+      if (ti.kind !== "tabs") return ti;
+      return patchTabsAtPath(ti, path, (leaf) => ({
+        ...leaf,
+        tabs: leaf.tabs.map(t => ({ ...t, items: t.items.filter(i => i.id !== fieldId) })),
+      }));
+    });
+  }, [updateTabsItem]);
+
+  const updateFieldInTab = useCallback((tabsId: string, path: string[], fieldId: string, updates: Partial<SectionItem>) => {
+    updateTabsItem(tabsId, (ti) => {
+      if (ti.kind !== "tabs") return ti;
+      return patchTabsAtPath(ti, path, (leaf) => ({
+        ...leaf,
+        tabs: leaf.tabs.map(t => ({
+          ...t,
+          items: t.items.map(i => i.id === fieldId ? { ...i, ...updates } as SectionItem : i),
+        })),
+      }));
+    });
   }, [updateTabsItem]);
 
   const splitFromRow = useCallback((fieldId: string) => {
@@ -1812,9 +1692,13 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
     if (dragItem.rowId === targetRowId) return;
     if (dragItem.kind === "action") return;
     if (dragItem.kind === "tabs") return;
+    if (dragItem.kind === "section") return;
+    if (dragItem.kind === "table") return;
     if (dragItem.kind === "field" && dragItem.type === "textarea") return;
     if (next.some(i => i.rowId === targetRowId && i.kind === "action")) return;
     if (next.some(i => i.rowId === targetRowId && i.kind === "tabs")) return;
+    if (next.some(i => i.rowId === targetRowId && i.kind === "section")) return;
+    if (next.some(i => i.rowId === targetRowId && i.kind === "table")) return;
     if (next.some(i => i.rowId === targetRowId && i.kind === "field" && i.type === "textarea")) return;
     if (next.filter(i => i.rowId === targetRowId).length >= 3) return;
     next.splice(fromIdx, 1);
@@ -1934,9 +1818,9 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
   };
 
   return (
-    <div className="h-full flex flex-col overflow-visible">
+    <div className="h-full flex flex-col">
       <div
-        className="flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl mr-[-465px] ml-[-300px] pl-[300px]"
+        className="flex-1 min-h-0 flex flex-col rounded-xl"
         style={{ minHeight: 200 }}
       >
         {/* Page header: Create {featureName} + Save buttons */}
@@ -1964,17 +1848,13 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
         {/* Main content area */}
         <div className="flex-1 min-h-0 relative mt-2">
           <div
-            className="h-full w-full flex gap-[48px] transition-transform duration-300 ease-in-out"
-            style={{
-              transform: activeTab === "properties" ? "translateX(-300px)" : "translateX(0)",
-            }}
+            className="h-full w-full flex gap-[48px]"
           >
           {/* Main Section */}
           <div
-            className={`shrink-0 flex flex-col transition-opacity duration-300 ease-in-out ${activeTab !== "sections" ? "cursor-pointer" : ""}`}
+            className={`flex-1 min-w-0 flex flex-col transition-opacity duration-300 ease-in-out ${activeTab !== "sections" ? "cursor-pointer" : ""}`}
             style={{
-              width: "calc(100% - 555px)",
-              opacity: activeTab === "sections" ? 1 : 0.3,
+              opacity: activeTab === "sections" ? 1 : 0.5,
             }}
             onClick={() => { if (activeTab !== "sections") onTabChange?.("sections"); }}
           >
@@ -2194,13 +2074,18 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                   if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
                                   if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
                                   if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
+                                  if (isPalette && e.dataTransfer.types.includes("palette-is-section")) return;
+                                  if (isPalette && e.dataTransfer.types.includes("palette-is-table")) return;
                                   if (rowGroup.items.length >= 3) return;
-                                  if (rowGroup.items.some(i => i.kind === "action" || i.kind === "tabs")) return;
+                                  if (rowGroup.items.some(i => i.kind === "action" || i.kind === "tabs" || i.kind === "section" || i.kind === "table")) return;
                                   if (rowGroup.items.some(i => i.kind === "field" && i.type === "textarea")) return;
+                                  const rowRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                  const yRow = e.clientY - rowRect.top;
+                                  const yRowRatio = yRow / rowRect.height;
+                                  if (yRowRatio < 0.18 || yRowRatio > 0.82) return;
                                   e.preventDefault();
                                   e.stopPropagation();
                                   e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
-                                  const rowRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                   const xRatio = (e.clientX - rowRect.left) / rowRect.width;
                                   const itemCount = rowGroup.items.length;
                                   const gapIdx = Math.min(Math.round(xRatio * itemCount), itemCount);
@@ -2218,6 +2103,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                   e.preventDefault();
                                   e.stopPropagation();
                                   const targetItem = rowGroup.items.find(i => i.id === rowJoinTarget.fieldId);
+                                  const savedSide = rowJoinTarget.side;
                                   setRowJoinTarget(null);
                                   setHReorderTarget(null);
                                   setDropInsertIdx(null);
@@ -2231,7 +2117,9 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                   if (paletteData) {
                                     try {
                                       const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
-                                      addFieldFromPalette(type, label, undefined, targetItem!.rowId);
+                                      const globalIdx = sectionItems.findIndex(i => i.id === rowJoinTarget.fieldId);
+                                      const insertAt = savedSide === "left" ? globalIdx : globalIdx + 1;
+                                      addFieldFromPalette(type, label, insertAt >= 0 ? insertAt : undefined, targetItem!.rowId);
                                     } catch { /* ignore */ }
                                   }
                                 }}
@@ -2277,21 +2165,30 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                         if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
                                         if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
                                         if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
+                                        if (isPalette && e.dataTransfer.types.includes("palette-is-section")) return;
+                                        if (isPalette && e.dataTransfer.types.includes("palette-is-table")) return;
                                         if (isReorder && draggingFieldId) {
                                           const draggedItem = sectionItems.find(i => i.id === draggingFieldId);
                                           if (!draggedItem || draggedItem.kind === "action") return;
                                           if (draggedItem.kind === "tabs") return;
+                                          if (draggedItem.kind === "section") return;
+                                          if (draggedItem.kind === "table") return;
                                           if (draggedItem.kind === "field" && draggedItem.type === "textarea") return;
                                           if (draggedItem.rowId === si.rowId) return;
                                         }
                                         if (rowGroup.items.length >= 3) return;
-                                        if (rowGroup.items.some(i => i.kind === "action")) return;
+                                        if (rowGroup.items.some(i => i.kind === "action" || i.kind === "section" || i.kind === "table")) return;
                                         if (rowGroup.items.some(i => i.kind === "field" && i.type === "textarea")) return;
                                         if (rowGroup.items.some(i => i.kind === "tabs")) return;
+
+                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                        const y = e.clientY - rect.top;
+                                        const yRatio = y / rect.height;
+                                        if (yRatio < 0.18 || yRatio > 0.82) return;
+
                                         e.preventDefault();
                                         e.stopPropagation();
                                         e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
-                                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                         const x = e.clientX - rect.left;
                                         const ratio = x / rect.width;
                                         const fieldIdxInRow = rowGroup.items.indexOf(si);
@@ -2331,6 +2228,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                       if (rowJoinTarget?.fieldId !== si.id) return;
                                       e.preventDefault();
                                       e.stopPropagation();
+                                      const fieldSide = rowJoinTarget.side;
                                       setRowJoinTarget(null);
                                       setHReorderTarget(null);
                                       setDropInsertIdx(null);
@@ -2344,7 +2242,9 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                       if (paletteData) {
                                         try {
                                           const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
-                                          addFieldFromPalette(type, label, undefined, si.rowId);
+                                          const gIdx = sectionItems.findIndex(item => item.id === si.id);
+                                          const insAt = fieldSide === "left" ? gIdx : gIdx + 1;
+                                          addFieldFromPalette(type, label, insAt >= 0 ? insAt : undefined, si.rowId);
                                         } catch { /* ignore */ }
                                       }
                                     }}
@@ -2380,7 +2280,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                       }}
                                       onDragEnd={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); setDraggingFieldId(null); }}
                                       className={`shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity ${
-                                        si.kind === "field" ? "mt-7" : si.kind === "tabs" ? "mt-2" : "mt-2.5"
+                                        si.kind === "field" ? "mt-7" : si.kind === "tabs" ? "mt-2" : si.kind === "section" ? "mt-1" : si.kind === "table" ? "mt-2" : "mt-2.5"
                                       }`}
                                     >
                                       <PreviewDragHandleIcon />
@@ -2388,19 +2288,56 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
 
                                     {/* Field content */}
                                     <div className="flex-1 min-w-0">
-                                      {si.kind === "tabs" ? (
+                                      {si.kind === "table" ? (
+                                        <TablePreview
+                                          tableItem={si}
+                                          onUpdate={(updater) => updateTableItem(si.id, updater)}
+                                          onDelete={() => removeField(si.id)}
+                                        />
+                                      ) : si.kind === "tabs" ? (
                                         <TabsPreview
+                                          rootTabsId={si.id}
+                                          tabsPath={[]}
                                           tabsItem={si}
-                                          onUpdate={(updater) => updateTabsItem(si.id, updater)}
-                                          onAddField={(type, label, joinRowId, atIndex) => addFieldToTab(si.id, type, label, joinRowId, atIndex)}
-                                          onRemoveField={(fieldId) => removeFieldFromTab(si.id, fieldId)}
-                                          onUpdateField={(fieldId, updates) => updateFieldInTab(si.id, fieldId, updates)}
+                                          updateTabsItem={updateTabsItem}
+                                          addFieldToTab={addFieldToTab}
+                                          removeFieldFromTab={removeFieldFromTab}
+                                          updateFieldInTab={updateFieldInTab}
+                                          updateTableInTab={updateTableInTab}
                                           onDelete={() => removeField(si.id)}
                                           onClearParentIndicators={() => { setDropInsertIdx(null); setRowJoinTarget(null); setHReorderTarget(null); }}
                                         />
+                                      ) : si.kind === "section" ? (
+                                        <div className="relative flex items-center mb-1 pt-1">
+                                          <span className="relative inline-flex">
+                                            <span className="invisible whitespace-pre text-sm font-medium">{si.title || "Section title"}</span>
+                                            <input
+                                              type="text"
+                                              value={si.title}
+                                              onChange={(e) => updateField(si.id, { title: e.target.value })}
+                                              className="absolute inset-0 w-full text-sm font-medium text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
+                                              placeholder="Section title"
+                                            />
+                                          </span>
+                                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
+                                          </svg>
+                                          <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
+                                            <button
+                                              type="button"
+                                              onClick={() => removeField(si.id)}
+                                              className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+                                            >
+                                              <PreviewDeleteIcon />
+                                            </button>
+                                          </div>
+                                        </div>
                                       ) : si.kind === "action" ? (
                                         <div className="pt-1 flex items-center gap-2">
-                                          <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+                                          <EditablePreviewActionButton
+                                            label={si.label}
+                                            onLabelChange={(next) => updateField(si.id, { label: next })}
+                                          />
                                           <button
                                             type="button"
                                             onClick={() => removeField(si.id)}
@@ -2423,7 +2360,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                                   className="absolute inset-0 w-full text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
                                                   placeholder="Field name"
                                                 />
-                                                {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
+                                                {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-[0] text-xs align-top">*</span>}
                                               </span>
                                               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
                                                 <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
@@ -2473,6 +2410,19 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                             } />
                                           ) : si.type === "number" ? (
                                             <Input disabled={si.readOnly} type="number" placeholder="0" rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                                          ) : si.type === "coins" ? (
+                                            <Input disabled={si.readOnly} type="number" placeholder="10 000" leftIcon={<CoinIcon />} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                                          ) : si.type === "diamonds" ? (
+                                            <Input disabled={si.readOnly} type="number" placeholder="10 000" leftIcon={<DiamondIcon />} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                                          ) : si.type === "percents" ? (
+                                            <Input
+                                              disabled={si.readOnly}
+                                              type="text"
+                                              value={si.placeholder ?? ""}
+                                              onChange={(e) => updateField(si.id, { placeholder: e.target.value })}
+                                              placeholder="0"
+                                              rightIcon={<PercentIcon />}
+                                            />
                                           ) : (
                                             <Input disabled={si.readOnly} placeholder={`Enter ${si.label}...`} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
                                           )}
@@ -2664,11 +2614,11 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
             </div>
           </div>
 
-          {/* Details panel — під Right Panel */}
+          {/* Details panel — always visible */}
           <div
-            className={`w-[330px] min-w-[330px] shrink-0 rounded-2xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] flex flex-col transition-opacity duration-300 ease-in-out overflow-hidden ${activeTab !== "properties" ? "cursor-pointer" : ""}`}
+            className={`w-[280px] min-w-[280px] shrink-0 rounded-2xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)] flex flex-col transition-opacity duration-300 ease-in-out overflow-hidden ${activeTab !== "properties" ? "cursor-pointer" : ""}`}
             style={{
-              opacity: activeTab === "properties" ? 1 : 0.4,
+              opacity: activeTab === "properties" ? 1 : 0.5,
             }}
             onClick={() => { if (activeTab !== "properties") onTabChange?.("properties"); }}
           >
@@ -2775,7 +2725,10 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                         </div>
                       ) : si.kind === "action" ? (
                         <div className="pt-1 flex items-center gap-2">
-                          <Button variant="secondary" leftIcon={<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>}>{si.label}</Button>
+                          <EditablePreviewActionButton
+                            label={si.label}
+                            onLabelChange={(next) => updateDetailsItem(si.id, { label: next })}
+                          />
                           <button
                             type="button"
                             onClick={() => removeDetailsItem(si.id)}
@@ -2797,7 +2750,7 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                                   className="absolute inset-0 w-full text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
                                   placeholder="Field name"
                                 />
-                                {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
+                                {si.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-[0] text-xs align-top">*</span>}
                               </span>
                               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover:opacity-100 transition-opacity">
                                 <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
@@ -2846,6 +2799,19 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
                             } />
                           ) : si.type === "number" ? (
                             <Input disabled={si.readOnly} type="number" placeholder="0" rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : si.type === "coins" ? (
+                            <Input disabled={si.readOnly} type="number" placeholder="10 000" leftIcon={<CoinIcon />} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : si.type === "diamonds" ? (
+                            <Input disabled={si.readOnly} type="number" placeholder="10 000" leftIcon={<DiamondIcon />} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : si.type === "percents" ? (
+                            <Input
+                              disabled={si.readOnly}
+                              type="text"
+                              value={si.placeholder ?? ""}
+                              onChange={(e) => updateField(si.id, { placeholder: e.target.value })}
+                              placeholder="0"
+                              rightIcon={<PercentIcon />}
+                            />
                           ) : (
                             <Input disabled={si.readOnly} placeholder={`Enter ${si.label}...`} rightIcon={si.copyable ? <PreviewCopyIcon /> : undefined} />
                           )}
@@ -2918,17 +2884,6 @@ function Step1PreviewArea({ intent, updateIntent, activeTab, onTabChange }: { in
               )}
             </div>
 
-            {/* Delete footer — прибитий до низу */}
-            {config.propertiesPanel.showDelete && (
-              <div className="shrink-0 h-14 flex items-center border-t border-[var(--color-base-stroke)] px-4" style={{ pointerEvents: activeTab === "properties" ? "auto" : "none" }}>
-                <Button variant="secondary" disabled className="w-full opacity-50">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                  </svg>
-                  Delete
-                </Button>
-              </div>
-            )}
           </div>
 
           </div>
@@ -2967,6 +2922,9 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
     (f): f is FieldRef => f != null && typeof f.id === "string"
   );
   const skeletonRows = 6;
+
+  /** Вибір рядків у прев’ю multiselect (лише майстер) */
+  const [multiselectDemoSelected, setMultiselectDemoSelected] = useState<Set<number>>(() => new Set());
 
   const [colDragFrom, setColDragFrom] = useState<number | null>(null);
   const [colDragTarget, setColDragTarget] = useState<number | null>(null);
@@ -3221,6 +3179,12 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
   });
   const showActions = activeStep === 3 && activeActions.length > 0;
   const actionsColWidth = activeActions.length * 36 + 24;
+  const showMultiselect = activeStep === 3 && intent.bulkActions.multiselect;
+  const selectColWidth = 32;
+
+  useEffect(() => {
+    if (!showMultiselect) setMultiselectDemoSelected(new Set());
+  }, [showMultiselect]);
 
   const measureRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -3383,6 +3347,41 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
             <table className="w-full" style={{ tableLayout: "fixed" }}>
               <thead>
                 <tr className="border-b border-[var(--color-base-stroke)]">
+                  {/* Multiselect — виїжджає зліва (той самий TRANSITION, що й Actions) */}
+                  <th
+                    className={`sticky left-0 z-10 h-8 bg-[var(--color-base-surface-secondary)] ${TRANSITION}`}
+                    style={{
+                      width: showMultiselect ? selectColWidth : 0,
+                      minWidth: showMultiselect ? selectColWidth : 0,
+                      maxWidth: showMultiselect ? selectColWidth : 0,
+                      opacity: showMultiselect ? 1 : 0,
+                      padding: showMultiselect ? 0 : 0,
+                      borderRight: showMultiselect ? "1px solid var(--color-base-stroke)" : "none",
+                      borderRightWidth: showMultiselect ? 1 : 0,
+                      overflow: "hidden",
+                      verticalAlign: "middle",
+                    }}
+                  >
+                    <div className="flex h-full w-full items-center justify-center min-h-8">
+                      {showMultiselect && (
+                        <WizardCheckbox
+                          hideLabel
+                          checked={
+                            skeletonRows > 0 && multiselectDemoSelected.size === skeletonRows
+                          }
+                          onCheckedChange={(checked) => {
+                            setMultiselectDemoSelected(
+                              checked
+                                ? new Set(Array.from({ length: skeletonRows }, (_, i) => i))
+                                : new Set(),
+                            );
+                          }}
+                          aria-label="Select all rows"
+                          className="shrink-0"
+                        />
+                      )}
+                    </div>
+                  </th>
                   {(() => {
                     const order = getColOrder();
                     return selectedColumns.map((col, colIdx) => {
@@ -3396,7 +3395,9 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
                         <th
                           key={col.id}
                           ref={el => { colThRefs.current[colIdx] = el; }}
-                          className={`group/col h-8 px-3 text-left text-xs font-medium text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] select-none`}
+                          className={`group/col h-8 px-3 text-left text-xs font-medium text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] select-none ${
+                            showMultiselect && colIdx === 0 ? "border-l-0" : ""
+                          }`}
                           style={{
                             width: colWidth,
                             minWidth: colWidth,
@@ -3404,6 +3405,9 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
                             transform: isAnimating ? `translateX(${totalShift}px)` : undefined,
                             transition: isAnimating && !isDragged && !colScrolling ? "transform 200ms ease, opacity 200ms ease" : "opacity 200ms ease",
                             zIndex: isDragged ? 0 : 1,
+                            ...(showMultiselect && colIdx === 0
+                              ? { borderLeftWidth: 0, borderLeftStyle: "none" as const, borderLeftColor: "transparent" }
+                              : {}),
                           }}
                         >
                           <div className="flex items-center gap-1.5 w-full">
@@ -3481,6 +3485,40 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
               <tbody>
                 {Array.from({ length: skeletonRows }).map((_, rowIdx) => (
                   <tr key={rowIdx} className="border-b border-[var(--color-base-stroke)] last:border-b-0">
+                    <td
+                      className={`sticky left-0 z-10 bg-[var(--color-base-surface-primary)] ${TRANSITION}`}
+                      style={{
+                        height: 48,
+                        width: showMultiselect ? selectColWidth : 0,
+                        minWidth: showMultiselect ? selectColWidth : 0,
+                        maxWidth: showMultiselect ? selectColWidth : 0,
+                        opacity: showMultiselect ? 1 : 0,
+                        padding: showMultiselect ? 0 : 0,
+                        borderRight: showMultiselect ? "1px solid var(--color-base-stroke)" : "none",
+                        borderRightWidth: showMultiselect ? 1 : 0,
+                        overflow: "hidden",
+                        verticalAlign: "middle",
+                      }}
+                    >
+                      <div className="flex h-full w-full items-center justify-center">
+                        {showMultiselect && (
+                          <WizardCheckbox
+                            hideLabel
+                            checked={multiselectDemoSelected.has(rowIdx)}
+                            onCheckedChange={(checked) => {
+                              setMultiselectDemoSelected((prev) => {
+                                const next = new Set(prev);
+                                if (checked) next.add(rowIdx);
+                                else next.delete(rowIdx);
+                                return next;
+                              });
+                            }}
+                            aria-label={`Select row ${rowIdx + 1}`}
+                            className="shrink-0"
+                          />
+                        )}
+                      </div>
+                    </td>
                     {(() => {
                       const order = getColOrder();
                       return selectedColumns.map((col, colIdx) => {
@@ -3493,7 +3531,7 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
                         return (
                           <td
                             key={col.id}
-                            className="px-3"
+                            className={`px-3 ${showMultiselect && colIdx === 0 ? "border-l-0" : ""}`}
                             style={{
                               width: colWidth,
                               minWidth: colWidth,
@@ -3501,6 +3539,9 @@ function SmartTablePreview({ intent, activeStep, updateIntent }: { intent: Wizar
                               opacity: isDragged ? 0.25 : tableOpacity,
                               transform: isAnimating ? `translateX(${totalShift}px)` : undefined,
                               transition: isAnimating && !isDragged && !colScrolling ? "transform 200ms ease, opacity 200ms ease" : "opacity 200ms ease",
+                              ...(showMultiselect && colIdx === 0
+                                ? { borderLeftWidth: 0, borderLeftStyle: "none" as const, borderLeftColor: "transparent" }
+                                : {}),
                             }}
                           >
                             <div className="flex items-center gap-2">
@@ -3588,26 +3629,580 @@ function StepGenericPreview({ step, intent }: { step: number; intent: WizardInte
 }
 
 // ============================================
+// TABLE PREVIEW COMPONENT
+// ============================================
+
+const ALLOWED_TABLE_CELL_TYPES = new Set(["input", "number", "select", "coins", "diamonds", "percents", "date-time"]);
+
+function TablePreview({
+  tableItem,
+  onUpdate,
+  onDelete,
+}: {
+  tableItem: Extract<SectionItem, { kind: "table" }>;
+  onUpdate: (updater: (item: Extract<SectionItem, { kind: "table" }>) => SectionItem) => void;
+  onDelete: () => void;
+}) {
+  const [editingColId, setEditingColId] = useState<string | null>(null);
+  const [dragRowId, setDragRowId] = useState<string | null>(null);
+  const [dropRowTarget, setDropRowTarget] = useState<{ id: string; side: "top" | "bottom" } | null>(null);
+  const [dragColId, setDragColId] = useState<string | null>(null);
+  const [dropColTarget, setDropColTarget] = useState<{ id: string; side: "left" | "right" } | null>(null);
+
+  const addColumn = () => {
+    onUpdate((t) => {
+      const colId = uid("col");
+      return { ...t, columns: [...t.columns, { id: colId, label: `Column ${t.columns.length + 1}` }] };
+    });
+  };
+
+  const removeColumn = (colId: string) => {
+    onUpdate((t) => {
+      if (t.columns.length <= 1) return t;
+      const columns = t.columns.filter(c => c.id !== colId);
+      const rows = t.rows.map(r => {
+        const cells = { ...r.cells };
+        delete cells[colId];
+        return { ...r, cells };
+      });
+      return { ...t, columns, rows };
+    });
+  };
+
+  const renameColumn = (colId: string, label: string) => {
+    onUpdate((t) => ({
+      ...t,
+      columns: t.columns.map(c => c.id === colId ? { ...c, label } : c),
+    }));
+  };
+
+  const addRow = () => {
+    onUpdate((t) => {
+      const rowAbove = t.rows[t.rows.length - 1];
+      const clonedCells: Record<string, TableCellDef | null> = {};
+      if (rowAbove) {
+        for (const [colId, cell] of Object.entries(rowAbove.cells)) {
+          clonedCells[colId] = cell ? { ...cell } : null;
+        }
+      }
+      return {
+        ...t,
+        rows: [...t.rows, { id: uid("trow"), cells: clonedCells }],
+      };
+    });
+  };
+
+  const removeRow = (rowId: string) => {
+    onUpdate((t) => ({
+      ...t,
+      rows: t.rows.filter(r => r.id !== rowId),
+    }));
+  };
+
+  const setCell = (rowId: string, colId: string, cell: TableCellDef | null) => {
+    onUpdate((t) => ({
+      ...t,
+      rows: t.rows.map(r => r.id === rowId ? { ...r, cells: { ...r.cells, [colId]: cell } } : r),
+    }));
+  };
+
+  const reorderColumns = (dragId: string, targetId: string, side: "left" | "right") => {
+    onUpdate((t) => {
+      const cols = [...t.columns];
+      const fromIdx = cols.findIndex(c => c.id === dragId);
+      const toIdx = cols.findIndex(c => c.id === targetId);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return t;
+      const [moved] = cols.splice(fromIdx, 1);
+      const insertIdx = side === "left" ? (fromIdx < toIdx ? toIdx - 1 : toIdx) : (fromIdx < toIdx ? toIdx : toIdx + 1);
+      cols.splice(insertIdx, 0, moved);
+      return { ...t, columns: cols };
+    });
+  };
+
+  const reorderRows = (dragId: string, targetId: string, side: "top" | "bottom") => {
+    onUpdate((t) => {
+      const rows = [...t.rows];
+      const fromIdx = rows.findIndex(r => r.id === dragId);
+      const toIdx = rows.findIndex(r => r.id === targetId);
+      if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return t;
+      const [moved] = rows.splice(fromIdx, 1);
+      const insertIdx = side === "top" ? (fromIdx < toIdx ? toIdx - 1 : toIdx) : (fromIdx < toIdx ? toIdx : toIdx + 1);
+      rows.splice(insertIdx, 0, moved);
+      return { ...t, rows };
+    });
+  };
+
+  const renderCellContent = (cell: TableCellDef | null, rowId: string, colId: string) => {
+    if (!cell) {
+      return (
+        <div
+          className="h-9 rounded-lg border border-dashed border-[var(--color-base-stroke)] flex items-center justify-center text-xs text-[var(--color-base-tertiary)] cursor-default transition-colors hover:border-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/5"
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes("palette-component")) return;
+            if (e.dataTransfer.types.includes("palette-is-tabs")) return;
+            if (e.dataTransfer.types.includes("palette-is-table")) return;
+            if (e.dataTransfer.types.includes("palette-is-action")) return;
+            if (e.dataTransfer.types.includes("palette-is-section")) return;
+            if (e.dataTransfer.types.includes("palette-is-textarea")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "copy";
+            (e.currentTarget as HTMLElement).style.borderColor = "var(--color-brand-primary)";
+            (e.currentTarget as HTMLElement).style.background = "var(--color-brand-primary-bg, rgba(236,72,153,0.08))";
+          }}
+          onDragLeave={(e) => {
+            (e.currentTarget as HTMLElement).style.borderColor = "";
+            (e.currentTarget as HTMLElement).style.background = "";
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            (e.currentTarget as HTMLElement).style.borderColor = "";
+            (e.currentTarget as HTMLElement).style.background = "";
+            const paletteData = e.dataTransfer.getData("palette-component");
+            if (!paletteData) return;
+            try {
+              const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
+              if (!ALLOWED_TABLE_CELL_TYPES.has(type)) return;
+              setCell(rowId, colId, { type, placeholder: label });
+            } catch { /* ignore */ }
+          }}
+        >
+          Drop field
+        </div>
+      );
+    }
+
+    let input: React.ReactNode;
+    if (cell.type === "select") {
+      input = <Select placeholder={cell.placeholder || "Select..."} options={[{ label: "Option 1", value: "1" }]} />;
+    } else if (cell.type === "coins") {
+      input = <Input type="number" placeholder={cell.placeholder || "0"} leftIcon={<CoinIcon />} />;
+    } else if (cell.type === "diamonds") {
+      input = <Input type="number" placeholder={cell.placeholder || "0"} leftIcon={<DiamondIcon />} />;
+    } else if (cell.type === "percents") {
+      input = (
+        <Input
+          type="text"
+          value={cell.placeholder ?? ""}
+          onChange={(e) => setCell(rowId, colId, { type: "percents", placeholder: e.target.value })}
+          placeholder="0"
+          rightIcon={<PercentIcon />}
+        />
+      );
+    } else if (cell.type === "number") {
+      input = <Input type="number" placeholder={cell.placeholder || "0"} />;
+    } else if (cell.type === "date-time") {
+      input = <Input placeholder={cell.placeholder || "Select date"} rightIcon={
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-base-tertiary)]">
+          <rect x="2" y="3" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/>
+          <path d="M2 7H14M5 1V4M11 1V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      } />;
+    } else {
+      input = <Input placeholder={cell.placeholder || "Enter..."} />;
+    }
+
+    return (
+      <div className="group/cell relative">
+        {input}
+        <button
+          type="button"
+          onClick={() => setCell(rowId, colId, null)}
+          className="absolute -top-1.5 -right-1.5 z-10 p-0.5 rounded-full bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)] text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:border-[var(--color-status-error)] opacity-0 group-hover/cell:opacity-100 transition-all shadow-sm"
+        >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none"><path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="group/table w-full min-w-0">
+      <div className="flex justify-end mb-1 h-6 opacity-0 group-hover/table:opacity-100 pointer-events-none group-hover/table:pointer-events-auto transition-opacity">
+        <button
+          type="button"
+          onClick={onDelete}
+          className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+          title="Delete table"
+        >
+          <PreviewDeleteIcon />
+        </button>
+      </div>
+      <div className="rounded-lg border border-[var(--color-base-stroke)] overflow-hidden bg-[var(--color-base-surface-primary)]">
+      {/* Header row */}
+      <div className="flex border-b border-[var(--color-base-stroke)] bg-[var(--color-base-surface-secondary)]">
+        <div className="w-8 shrink-0" />
+        {tableItem.columns.map((col) => (
+          <div
+            key={col.id}
+            draggable={editingColId !== col.id}
+            onDragStart={(e) => {
+              e.dataTransfer.setData("table-col-reorder", col.id);
+              e.dataTransfer.effectAllowed = "move";
+              setDragColId(col.id);
+            }}
+            onDragEnd={() => { setDragColId(null); setDropColTarget(null); }}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes("table-col-reorder")) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              const side: "left" | "right" = x < rect.width / 2 ? "left" : "right";
+              setDropColTarget({ id: col.id, side });
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                if (dropColTarget?.id === col.id) setDropColTarget(null);
+              }
+            }}
+            onDrop={(e) => {
+              if (!e.dataTransfer.types.includes("table-col-reorder")) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const fromId = e.dataTransfer.getData("table-col-reorder");
+              if (fromId && fromId !== col.id && dropColTarget) {
+                reorderColumns(fromId, col.id, dropColTarget.side);
+              }
+              setDragColId(null);
+              setDropColTarget(null);
+            }}
+            className={`group/tcol relative flex-1 min-w-0 flex items-center h-9 px-1.5 border-r border-[var(--color-base-stroke)] last:border-r-0 ${dragColId === col.id ? "opacity-30" : ""}`}
+          >
+            {dropColTarget?.id === col.id && dropColTarget.side === "left" && (
+              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-[var(--color-brand-primary)] z-10" />
+            )}
+            {dropColTarget?.id === col.id && dropColTarget.side === "right" && (
+              <div className="absolute right-0 top-0 bottom-0 w-0.5 bg-[var(--color-brand-primary)] z-10" />
+            )}
+            {/* Drag handle */}
+            <div className="shrink-0 cursor-grab active:cursor-grabbing text-[var(--color-base-tertiary)] opacity-0 group-hover/tcol:opacity-100 transition-opacity mr-0.5">
+              <svg width="6" height="10" viewBox="0 0 6 10" fill="currentColor"><circle cx="1.5" cy="1.5" r="1"/><circle cx="4.5" cy="1.5" r="1"/><circle cx="1.5" cy="5" r="1"/><circle cx="4.5" cy="5" r="1"/><circle cx="1.5" cy="8.5" r="1"/><circle cx="4.5" cy="8.5" r="1"/></svg>
+            </div>
+            {editingColId === col.id ? (
+              <input
+                type="text"
+                autoFocus
+                value={col.label}
+                onChange={(e) => renameColumn(col.id, e.target.value)}
+                onBlur={() => setEditingColId(null)}
+                onKeyDown={(e) => { if (e.key === "Enter") setEditingColId(null); }}
+                className="w-full text-xs font-medium text-[var(--color-base-primary)] bg-transparent border-0 outline-none px-0 py-0"
+              />
+            ) : (
+              <span
+                className="flex-1 text-xs font-medium text-[var(--color-base-secondary)] truncate cursor-text"
+                onClick={() => setEditingColId(col.id)}
+              >
+                {col.label}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => removeColumn(col.id)}
+              className={`shrink-0 ml-1 p-0.5 rounded text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] transition-colors opacity-0 group-hover/tcol:opacity-100 ${tableItem.columns.length <= 1 ? "pointer-events-none" : ""}`}
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={addColumn}
+          className="w-9 shrink-0 flex items-center justify-center text-[var(--color-base-tertiary)] hover:text-[var(--color-brand-primary)] transition-colors"
+          title="Add column"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        </button>
+      </div>
+
+      {/* Data rows */}
+      {tableItem.rows.map((row) => (
+        <div
+          key={row.id}
+          className={`relative flex border-b border-[var(--color-base-stroke)] last:border-b-0 group/trow ${dragRowId === row.id ? "opacity-30" : ""}`}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData("table-row-reorder", row.id);
+            e.dataTransfer.effectAllowed = "move";
+            setDragRowId(row.id);
+          }}
+          onDragEnd={() => { setDragRowId(null); setDropRowTarget(null); }}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes("table-row-reorder")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const y = e.clientY - rect.top;
+            const side: "top" | "bottom" = y < rect.height / 2 ? "top" : "bottom";
+            setDropRowTarget({ id: row.id, side });
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              if (dropRowTarget?.id === row.id) setDropRowTarget(null);
+            }
+          }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.types.includes("table-row-reorder")) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const dragId = e.dataTransfer.getData("table-row-reorder");
+            if (dragId && dragId !== row.id && dropRowTarget) {
+              reorderRows(dragId, row.id, dropRowTarget.side);
+            }
+            setDragRowId(null);
+            setDropRowTarget(null);
+          }}
+        >
+          {dropRowTarget?.id === row.id && dropRowTarget.side === "top" && (
+            <div className="absolute top-0 left-0 right-0 h-0.5 bg-[var(--color-brand-primary)] z-10" />
+          )}
+          {dropRowTarget?.id === row.id && dropRowTarget.side === "bottom" && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[var(--color-brand-primary)] z-10" />
+          )}
+          {/* Drag handle */}
+          <div className="w-8 shrink-0 flex items-center justify-center cursor-grab active:cursor-grabbing text-[var(--color-base-tertiary)] opacity-0 group-hover/trow:opacity-100 transition-opacity">
+            <PreviewDragHandleIcon />
+          </div>
+          {/* Cells */}
+          {tableItem.columns.map((col) => (
+            <div
+              key={col.id}
+              className="flex-1 min-w-0 px-2 py-1.5 border-r border-[var(--color-base-stroke)] last:border-r-0"
+            >
+              {renderCellContent(row.cells[col.id] ?? null, row.id, col.id)}
+            </div>
+          ))}
+          {/* Delete row */}
+          <div className="w-9 shrink-0 flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => removeRow(row.id)}
+              className="p-1 rounded text-[var(--color-base-tertiary)] opacity-0 group-hover/trow:opacity-100 hover:text-[var(--color-status-error)] transition-all"
+            >
+              <PreviewDeleteIcon />
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {/* Add row */}
+      <button
+        type="button"
+        onClick={addRow}
+        className="w-full h-9 flex items-center justify-center gap-1.5 text-xs text-[var(--color-base-tertiary)] hover:text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/5 transition-colors"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+        Add Row
+      </button>
+    </div>
+    </div>
+  );
+}
+
+// ============================================
 // TABS PREVIEW COMPONENT
 // ============================================
 
+type TabsSectionItem = Extract<SectionItem, { kind: "tabs" }>;
+
+function patchTabsAtPath(
+  root: TabsSectionItem,
+  path: string[],
+  mutateLeaf: (leaf: TabsSectionItem) => SectionItem,
+): TabsSectionItem {
+  if (path.length === 0) {
+    const next = mutateLeaf(root);
+    return next.kind === "tabs" ? next : root;
+  }
+  const [head, ...rest] = path;
+  return {
+    ...root,
+    tabs: root.tabs.map(tab => ({
+      ...tab,
+      items: tab.items.map(item =>
+        item.id === head && item.kind === "tabs"
+          ? patchTabsAtPath(item, rest, mutateLeaf)
+          : item,
+      ),
+    })),
+  };
+}
+
+function addFieldToTabsLeaf(leaf: TabsSectionItem, type: string, label: string, joinRowId?: string, atIndex?: number): TabsSectionItem {
+  const pushToActive = (newItem: SectionItem, blockJoin: boolean) => ({
+    ...leaf,
+    tabs: leaf.tabs.map(t => {
+      if (t.id !== leaf.activeTabId) return t;
+      if (blockJoin && joinRowId) return t;
+      const next = [...t.items];
+      if (atIndex !== undefined && atIndex >= 0 && atIndex <= next.length) next.splice(atIndex, 0, newItem);
+      else next.push(newItem);
+      return { ...t, items: next };
+    }),
+  });
+
+  if (type === "table") {
+    const tableId = uid("table");
+    const col1 = uid("col");
+    const col2 = uid("col");
+    const col3 = uid("col");
+    const row1 = uid("trow");
+    const newItem: SectionItem = {
+      id: tableId, kind: "table", rowId: tableId,
+      columns: [
+        { id: col1, label: "Column 1" },
+        { id: col2, label: "Column 2" },
+        { id: col3, label: "Column 3" },
+      ],
+      rows: [{ id: row1, cells: {} }],
+    };
+    return pushToActive(newItem, true);
+  }
+
+  if (type === "section") {
+    const sectionId = uid("section");
+    const newItem: SectionItem = { id: sectionId, kind: "section", title: label, rowId: sectionId };
+    return pushToActive(newItem, true);
+  }
+
+  if (type === "action") {
+    const actionId = uid("action");
+    const newItem: SectionItem = { id: actionId, kind: "action", label, rowId: actionId };
+    return pushToActive(newItem, true);
+  }
+
+  if (type === "tabs") {
+    const tab1Id = uid("tab");
+    const tab2Id = uid("tab");
+    const newId = uid("tabs");
+    const newItem: SectionItem = {
+      id: newId, kind: "tabs", rowId: newId,
+      tabs: [
+        { id: tab1Id, label: "Tab 1", items: [] },
+        { id: tab2Id, label: "Tab 2", items: [] },
+      ],
+      activeTabId: tab1Id,
+    };
+    return pushToActive(newItem, true);
+  }
+
+  const fieldId = uid("field");
+  const effectiveRowId = type === "textarea" ? fieldId : joinRowId || fieldId;
+  const newField: SectionItem = { id: fieldId, kind: "field", label, type, rowId: effectiveRowId };
+  return {
+    ...leaf,
+    tabs: leaf.tabs.map(t => {
+      if (t.id !== leaf.activeTabId) return t;
+      if (joinRowId && effectiveRowId === joinRowId) {
+        const rowCount = t.items.filter(i => i.rowId === joinRowId).length;
+        if (rowCount >= 3) return t;
+        if (t.items.some(i => i.rowId === joinRowId && (i.kind === "table" || i.kind === "tabs" || i.kind === "section" || i.kind === "action"))) return t;
+        if (t.items.some(i => i.rowId === joinRowId && i.kind === "field" && i.type === "textarea")) return t;
+        const lastIdx = t.items.findLastIndex(i => i.rowId === joinRowId);
+        if (lastIdx !== -1) {
+          const next = [...t.items];
+          next.splice(lastIdx + 1, 0, newField);
+          return { ...t, items: next };
+        }
+      }
+      if (atIndex !== undefined && atIndex >= 0 && atIndex <= t.items.length) {
+        const next = [...t.items];
+        next.splice(atIndex, 0, newField);
+        return { ...t, items: next };
+      }
+      return { ...t, items: [...t.items, newField] };
+    }),
+  };
+}
+
+/** Глибоке клонування елемента всередині табів (дублікат, вкладені tabs). */
+function deepCloneSectionItemInTab(item: SectionItem, rowIdMap: Map<string, string>): SectionItem {
+  if (!rowIdMap.has(item.rowId)) rowIdMap.set(item.rowId, uid("row"));
+  const newId = uid(item.kind === "field" ? item.type : item.kind);
+
+  if (item.kind === "table") {
+    const clonedCols = item.columns.map(c => ({ ...c, id: uid("col") }));
+    const colMap = new Map(item.columns.map((c, i) => [c.id, clonedCols[i].id]));
+    const clonedRows = item.rows.map(r => {
+      const newCells: Record<string, TableCellDef | null> = {};
+      for (const [oldColId, cell] of Object.entries(r.cells)) {
+        const newColId = colMap.get(oldColId);
+        if (newColId) newCells[newColId] = cell ? { ...cell } : null;
+      }
+      return { id: uid("trow"), cells: newCells };
+    });
+    return { ...item, id: newId, rowId: newId, columns: clonedCols, rows: clonedRows };
+  }
+  if (item.kind === "section") {
+    return { ...item, id: newId, rowId: newId };
+  }
+  if (item.kind === "action") {
+    return { ...item, id: newId, rowId: newId };
+  }
+  if (item.kind === "tabs") {
+    const clonedTabs = item.tabs.map(tab => {
+      const innerRowMap = new Map<string, string>();
+      return {
+        ...tab,
+        id: uid("tab"),
+        items: tab.items.map(i => deepCloneSectionItemInTab(i, innerRowMap)),
+      };
+    });
+    return {
+      ...item,
+      id: newId,
+      rowId: newId,
+      tabs: clonedTabs,
+      activeTabId: clonedTabs[0]?.id ?? item.activeTabId,
+    };
+  }
+  return { ...item, id: newId, rowId: rowIdMap.get(item.rowId)! };
+}
+
 function TabsPreview({
+  rootTabsId,
+  tabsPath,
   tabsItem,
-  onUpdate,
-  onAddField,
-  onRemoveField,
-  onUpdateField,
+  updateTabsItem,
+  addFieldToTab,
+  removeFieldFromTab,
+  updateFieldInTab,
+  updateTableInTab,
   onDelete,
   onClearParentIndicators,
 }: {
-  tabsItem: Extract<SectionItem, { kind: "tabs" }>;
-  onUpdate: (updater: (item: Extract<SectionItem, { kind: "tabs" }>) => SectionItem) => void;
-  onAddField: (type: string, label: string, joinRowId?: string, atIndex?: number) => void;
-  onRemoveField: (fieldId: string) => void;
-  onUpdateField: (fieldId: string, updates: Partial<SectionItem>) => void;
+  rootTabsId: string;
+  tabsPath: string[];
+  tabsItem: TabsSectionItem;
+  updateTabsItem: (tabsId: string, updater: (item: TabsSectionItem) => SectionItem) => void;
+  addFieldToTab: (tabsId: string, path: string[], type: string, label: string, joinRowId?: string, atIndex?: number) => void;
+  removeFieldFromTab: (tabsId: string, path: string[], fieldId: string) => void;
+  updateFieldInTab: (tabsId: string, path: string[], fieldId: string, updates: Partial<SectionItem>) => void;
+  updateTableInTab: (tabsId: string, path: string[], tableId: string, updater: (item: Extract<SectionItem, { kind: "table" }>) => SectionItem) => void;
   onClearParentIndicators: () => void;
   onDelete: () => void;
 }) {
+  const onPatch = useCallback((updater: (leaf: TabsSectionItem) => SectionItem) => {
+    updateTabsItem(rootTabsId, (ti) => (ti.kind === "tabs" ? patchTabsAtPath(ti, tabsPath, updater) : ti));
+  }, [rootTabsId, tabsPath, updateTabsItem]);
+
+  const onAddField = useCallback((type: string, label: string, joinRowId?: string, atIndex?: number) => {
+    addFieldToTab(rootTabsId, tabsPath, type, label, joinRowId, atIndex);
+  }, [addFieldToTab, rootTabsId, tabsPath]);
+
+  const onRemoveField = useCallback((fieldId: string) => {
+    removeFieldFromTab(rootTabsId, tabsPath, fieldId);
+  }, [removeFieldFromTab, rootTabsId, tabsPath]);
+
+  const onUpdateField = useCallback((fieldId: string, updates: Partial<SectionItem>) => {
+    updateFieldInTab(rootTabsId, tabsPath, fieldId, updates);
+  }, [updateFieldInTab, rootTabsId, tabsPath]);
+
+  const onUpdateTable = useCallback((tableId: string, updater: (item: Extract<SectionItem, { kind: "table" }>) => SectionItem) => {
+    updateTableInTab(rootTabsId, tabsPath, tableId, updater);
+  }, [updateTableInTab, rootTabsId, tabsPath]);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [tabDragOver, setTabDragOver] = useState(false);
   const [tabRowJoinTarget, setTabRowJoinTarget] = useState<{ fieldId: string; side: "left" | "right" } | null>(null);
@@ -3634,7 +4229,7 @@ function TabsPreview({
   }, [tabRows.length]);
 
   const splitFieldFromTabRow = (fieldId: string) => {
-    onUpdate((ti) => ({
+    onPatch((ti) => ({
       ...ti,
       tabs: ti.tabs.map(t => ({
         ...t,
@@ -3644,14 +4239,43 @@ function TabsPreview({
   };
 
   const duplicateTabField = (fieldId: string) => {
-    onUpdate((ti) => ({
+    onPatch((ti) => ({
       ...ti,
       tabs: ti.tabs.map(t => {
         const idx = t.items.findIndex(i => i.id === fieldId);
         if (idx === -1) return t;
         const src = t.items[idx];
         const newId = uid(src.kind === "field" ? src.type : src.kind);
-        const copy: SectionItem = { ...src, id: newId, rowId: uid("row") };
+        let copy: SectionItem;
+        if (src.kind === "table") {
+          const clonedCols = src.columns.map(c => ({ ...c, id: uid("col") }));
+          const colMap = new Map(src.columns.map((c, i) => [c.id, clonedCols[i].id]));
+          const clonedRows = src.rows.map(r => {
+            const newCells: Record<string, TableCellDef | null> = {};
+            for (const [oldColId, cell] of Object.entries(r.cells)) {
+              const newColId = colMap.get(oldColId);
+              if (newColId) newCells[newColId] = cell ? { ...cell } : null;
+            }
+            return { id: uid("trow"), cells: newCells };
+          });
+          copy = { ...src, id: newId, rowId: newId, columns: clonedCols, rows: clonedRows };
+        } else if (src.kind === "section") {
+          copy = { ...src, id: newId, rowId: newId };
+        } else if (src.kind === "action") {
+          copy = { ...src, id: newId, rowId: newId };
+        } else if (src.kind === "tabs") {
+          const clonedTabs = src.tabs.map(tab => {
+            const rowIdMap = new Map<string, string>();
+            return {
+              ...tab,
+              id: uid("tab"),
+              items: tab.items.map(i => deepCloneSectionItemInTab(i, rowIdMap)),
+            };
+          });
+          copy = { ...src, id: newId, rowId: newId, tabs: clonedTabs, activeTabId: clonedTabs[0]?.id ?? src.activeTabId };
+        } else {
+          copy = { ...src, id: newId, rowId: uid("row") };
+        }
         const next = [...t.items];
         next.splice(idx + 1, 0, copy);
         return { ...t, items: next };
@@ -3674,11 +4298,11 @@ function TabsPreview({
   }, [tabMenuId]);
 
   const switchTab = (tabId: string) => {
-    onUpdate((ti) => ({ ...ti, activeTabId: tabId }));
+    onPatch((ti) => ({ ...ti, activeTabId: tabId }));
   };
 
   const renameTab = (tabId: string, label: string) => {
-    onUpdate((ti) => ({
+    onPatch((ti) => ({
       ...ti,
       tabs: ti.tabs.map(t => t.id === tabId ? { ...t, label } : t),
     }));
@@ -3686,7 +4310,7 @@ function TabsPreview({
 
   const addTab = () => {
     const newTabId = uid("tab");
-    onUpdate((ti) => ({
+    onPatch((ti) => ({
       ...ti,
       tabs: [...ti.tabs, { id: newTabId, label: `Tab ${ti.tabs.length + 1}`, items: [] }],
       activeTabId: newTabId,
@@ -3694,7 +4318,7 @@ function TabsPreview({
   };
 
   const removeTab = (tabId: string) => {
-    onUpdate((ti) => {
+    onPatch((ti) => {
       if (ti.tabs.length <= 1) return ti;
       const nextTabs = ti.tabs.filter(t => t.id !== tabId);
       const newActiveId = ti.activeTabId === tabId ? nextTabs[0].id : ti.activeTabId;
@@ -3703,7 +4327,7 @@ function TabsPreview({
   };
 
   const duplicateTab = (tabId: string) => {
-    onUpdate((ti) => {
+    onPatch((ti) => {
       const srcTab = ti.tabs.find(t => t.id === tabId);
       if (!srcTab) return ti;
       const newTabId = uid("tab");
@@ -3713,6 +4337,22 @@ function TabsPreview({
       });
       const clonedItems = srcTab.items.map((item) => {
         const newId = uid(item.kind === "field" ? item.type : item.kind);
+        if (item.kind === "table") {
+          const clonedCols = item.columns.map(c => ({ ...c, id: uid("col") }));
+          const colMap = new Map(item.columns.map((c, i) => [c.id, clonedCols[i].id]));
+          const clonedRows = item.rows.map(r => {
+            const newCells: Record<string, TableCellDef | null> = {};
+            for (const [oldColId, cell] of Object.entries(r.cells)) {
+              const newColId = colMap.get(oldColId);
+              if (newColId) newCells[newColId] = cell ? { ...cell } : null;
+            }
+            return { id: uid("trow"), cells: newCells };
+          });
+          return { ...item, id: newId, rowId: newId, columns: clonedCols, rows: clonedRows };
+        }
+        if (item.kind === "section") {
+          return { ...item, id: newId, rowId: newId };
+        }
         return { ...item, id: newId, rowId: rowIdMap.get(item.rowId) ?? newId };
       });
       const srcIdx = ti.tabs.findIndex(t => t.id === tabId);
@@ -3738,7 +4378,7 @@ function TabsPreview({
 
   const reorderWithinTabRow = useCallback((dragFieldId: string, targetFieldId: string, side: "left" | "right") => {
     if (dragFieldId === targetFieldId) return;
-    onUpdate((ti) => ({
+    onPatch((ti) => ({
       ...ti,
       tabs: ti.tabs.map(t => {
         const fromIdx = t.items.findIndex(i => i.id === dragFieldId);
@@ -3754,17 +4394,29 @@ function TabsPreview({
         return { ...t, items: next };
       }),
     }));
-  }, [onUpdate]);
+  }, [onPatch]);
 
   const moveTabFieldToRow = useCallback((fieldId: string, targetRowId: string) => {
-    onUpdate((ti) => ({
-      ...ti,
-      tabs: ti.tabs.map(t => ({
-        ...t,
-        items: t.items.map(i => i.id === fieldId ? { ...i, rowId: targetRowId } : i),
-      })),
-    }));
-  }, [onUpdate]);
+    onPatch((ti) => {
+      const active = ti.tabs.find(t => t.id === ti.activeTabId);
+      if (!active) return ti;
+      const dragItem = active.items.find(i => i.id === fieldId);
+      if (!dragItem || dragItem.rowId === targetRowId) return ti;
+      if (dragItem.kind !== "field") return ti;
+      if (dragItem.kind === "field" && dragItem.type === "textarea") return ti;
+      const inTarget = active.items.filter(i => i.rowId === targetRowId);
+      if (inTarget.some(i => i.kind === "table" || i.kind === "tabs" || i.kind === "section" || i.kind === "action")) return ti;
+      if (inTarget.some(i => i.kind === "field" && i.type === "textarea")) return ti;
+      if (inTarget.length >= 3) return ti;
+      return {
+        ...ti,
+        tabs: ti.tabs.map(t => ({
+          ...t,
+          items: t.items.map(i => i.id === fieldId ? { ...i, rowId: targetRowId } : i),
+        })),
+      };
+    });
+  }, [onPatch]);
 
   const [tabChipDragId, setTabChipDragId] = useState<string | null>(null);
   const [tabChipDropTarget, setTabChipDropTarget] = useState<{ tabId: string; side: "left" | "right" } | null>(null);
@@ -3776,7 +4428,7 @@ function TabsPreview({
 
   const reorderTabs = useCallback((dragId: string, targetId: string, side: "left" | "right") => {
     if (dragId === targetId) return;
-    onUpdate((ti) => {
+    onPatch((ti) => {
       const tabs = [...ti.tabs];
       const dragIdx = tabs.findIndex(t => t.id === dragId);
       if (dragIdx === -1) return ti;
@@ -3787,7 +4439,7 @@ function TabsPreview({
       tabs.splice(targetIdx, 0, dragged);
       return { ...ti, tabs };
     });
-  }, [onUpdate]);
+  }, [onPatch]);
 
   const handleTabChipPointerDown = useCallback((e: React.PointerEvent, tabId: string) => {
     if (editingTabId) return;
@@ -3881,7 +4533,6 @@ function TabsPreview({
           const isPalette = e.dataTransfer.types.includes("palette-component");
           const isReorder = e.dataTransfer.types.includes("tab-field-reorder");
           if (!isPalette && !isReorder) return;
-          if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
           e.preventDefault();
           e.stopPropagation();
           e.dataTransfer.dropEffect = isPalette ? "copy" : "move";
@@ -3921,7 +4572,7 @@ function TabsPreview({
 
           const reorderData = e.dataTransfer.getData("tab-field-reorder");
           if (reorderData && tabFieldDragId && insertAt !== null) {
-            onUpdate((ti) => ({
+            onPatch((ti) => ({
               ...ti,
               tabs: ti.tabs.map(t => {
                 const fromIdx = t.items.findIndex(i => i.id === tabFieldDragId);
@@ -3950,7 +4601,6 @@ function TabsPreview({
           if (paletteData) {
             try {
               const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
-              if (type === "tabs") return;
               if (insertAt !== null && insertAt < tabRows.length) {
                 const firstItemInTargetRow = tabRows[insertAt].items[0];
                 const globalIdx = activeTab ? activeTab.items.findIndex(i => i.id === firstItemInTargetRow.id) : -1;
@@ -4073,7 +4723,8 @@ function TabsPreview({
             {tabRows.map((rowGroup, rowIdx) => {
               const isMulti = rowGroup.items.length > 1;
               const canJoinRow = rowGroup.items.length < 3
-                && !rowGroup.items.some(i => i.kind === "field" && i.type === "textarea");
+                && !rowGroup.items.some(i => i.kind === "field" && i.type === "textarea")
+                && !rowGroup.items.some(i => i.kind === "table" || i.kind === "tabs" || i.kind === "section" || i.kind === "action");
               return (
                 <div
                   key={rowGroup.rowId}
@@ -4083,12 +4734,14 @@ function TabsPreview({
                     const isPalette = e.dataTransfer.types.includes("palette-component");
                     const isReorder = e.dataTransfer.types.includes("tab-field-reorder");
                     if (!isPalette && !isReorder) return;
-                    if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
                     if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
                     if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
+                    if (isPalette && e.dataTransfer.types.includes("palette-is-section")) return;
+                    if (isPalette && e.dataTransfer.types.includes("palette-is-table")) return;
                     if (isReorder && tabFieldDragId) {
                       const dragItem = activeTab?.items.find(i => i.id === tabFieldDragId);
                       if (!dragItem) return;
+                      if (dragItem.kind !== "field") return;
                       if (dragItem.kind === "field" && dragItem.type === "textarea") return;
                       if (dragItem.rowId === rowGroup.rowId) return;
                     }
@@ -4129,13 +4782,251 @@ function TabsPreview({
                     if (paletteData) {
                       try {
                         const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
-                        if (type !== "tabs") onAddField(type, label, rowGroup.rowId);
+                        onAddField(type, label, rowGroup.rowId);
                       } catch { /* ignore */ }
                     }
                   }}
                 >
-                  {rowGroup.items.map((field) => {
-                    if (field.kind !== "field") return null;
+                  {rowGroup.items.map((item) => {
+                    if (item.kind === "table") {
+                      return (
+                        <div
+                          key={item.id}
+                          data-tab-field-id={item.id}
+                          className={`group/tabtable relative flex items-start gap-1.5 rounded-lg px-2 py-2 transition-all duration-200 w-full min-w-0 ${
+                            tabFieldDragId === item.id ? "opacity-30 scale-[0.97]" : "hover:bg-[var(--color-base-surface-secondary)]"
+                          }`}
+                        >
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("tab-field-reorder", item.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setTabFieldDragId(item.id);
+                              const handleEl = e.currentTarget as HTMLElement;
+                              const wrapEl = handleEl.closest("[data-tab-field-id]") as HTMLElement | null;
+                              if (wrapEl) {
+                                const handleRect = handleEl.getBoundingClientRect();
+                                const fieldRect = wrapEl.getBoundingClientRect();
+                                const offsetX = (handleRect.left + handleRect.width / 2) - fieldRect.left;
+                                const offsetY = (handleRect.top + handleRect.height / 2) - fieldRect.top;
+                                const clone = wrapEl.cloneNode(true) as HTMLElement;
+                                clone.style.width = `${wrapEl.offsetWidth}px`;
+                                clone.style.position = "absolute";
+                                clone.style.top = "-9999px";
+                                clone.style.left = "-9999px";
+                                clone.style.opacity = "0.85";
+                                clone.style.borderRadius = "8px";
+                                clone.style.background = "var(--color-base-surface-primary)";
+                                clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+                                document.body.appendChild(clone);
+                                e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                                requestAnimationFrame(() => clone.remove());
+                              }
+                            }}
+                            onDragEnd={() => { setTabDropInsertIdx(null); setTabRowJoinTarget(null); setTabHReorderTarget(null); setTabFieldDragId(null); }}
+                            className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover/tabtable:opacity-100 transition-opacity mt-2"
+                          >
+                            <PreviewDragHandleIcon />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <TablePreview
+                              tableItem={item}
+                              onUpdate={(updater) => onUpdateTable(item.id, updater)}
+                              onDelete={() => onRemoveField(item.id)}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (item.kind === "section") {
+                      return (
+                        <div
+                          key={item.id}
+                          data-tab-field-id={item.id}
+                          className={`group/tabsection relative flex items-start gap-1.5 rounded-lg px-2 py-2 transition-all duration-200 w-full min-w-0 ${
+                            tabFieldDragId === item.id ? "opacity-30 scale-[0.97]" : "hover:bg-[var(--color-base-surface-secondary)]"
+                          }`}
+                        >
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("tab-field-reorder", item.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setTabFieldDragId(item.id);
+                              const handleEl = e.currentTarget as HTMLElement;
+                              const wrapEl = handleEl.closest("[data-tab-field-id]") as HTMLElement | null;
+                              if (wrapEl) {
+                                const handleRect = handleEl.getBoundingClientRect();
+                                const fieldRect = wrapEl.getBoundingClientRect();
+                                const offsetX = (handleRect.left + handleRect.width / 2) - fieldRect.left;
+                                const offsetY = (handleRect.top + handleRect.height / 2) - fieldRect.top;
+                                const clone = wrapEl.cloneNode(true) as HTMLElement;
+                                clone.style.width = `${wrapEl.offsetWidth}px`;
+                                clone.style.position = "absolute";
+                                clone.style.top = "-9999px";
+                                clone.style.left = "-9999px";
+                                clone.style.opacity = "0.85";
+                                clone.style.borderRadius = "8px";
+                                clone.style.background = "var(--color-base-surface-primary)";
+                                clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+                                document.body.appendChild(clone);
+                                e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                                requestAnimationFrame(() => clone.remove());
+                              }
+                            }}
+                            onDragEnd={() => { setTabDropInsertIdx(null); setTabRowJoinTarget(null); setTabHReorderTarget(null); setTabFieldDragId(null); }}
+                            className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover/tabsection:opacity-100 transition-opacity mt-1"
+                          >
+                            <PreviewDragHandleIcon />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="relative flex items-center mb-1 pt-1">
+                              <span className="relative inline-flex">
+                                <span className="invisible whitespace-pre text-sm font-medium">{item.title || "Section title"}</span>
+                                <input
+                                  type="text"
+                                  value={item.title}
+                                  onChange={(e) => onUpdateField(item.id, { title: e.target.value })}
+                                  className="absolute inset-0 w-full text-sm font-medium text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
+                                  placeholder="Section title"
+                                />
+                              </span>
+                              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover/tabsection:opacity-100 transition-opacity">
+                                <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
+                              </svg>
+                              <div className="absolute right-0 top-0 bottom-0 flex items-center opacity-0 group-hover/tabsection:opacity-100 pointer-events-none group-hover/tabsection:pointer-events-auto transition-opacity bg-gradient-to-l from-[var(--color-base-surface-secondary)] from-60% to-transparent pl-5">
+                                <button
+                                  type="button"
+                                  onClick={() => onRemoveField(item.id)}
+                                  className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+                                >
+                                  <PreviewDeleteIcon />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (item.kind === "action") {
+                      return (
+                        <div
+                          key={item.id}
+                          data-tab-field-id={item.id}
+                          className={`group/tabaction relative flex items-start gap-1.5 rounded-lg px-2 py-2 transition-all duration-200 w-full min-w-0 ${
+                            tabFieldDragId === item.id ? "opacity-30 scale-[0.97]" : "hover:bg-[var(--color-base-surface-secondary)]"
+                          }`}
+                        >
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("tab-field-reorder", item.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setTabFieldDragId(item.id);
+                              const handleEl = e.currentTarget as HTMLElement;
+                              const wrapEl = handleEl.closest("[data-tab-field-id]") as HTMLElement | null;
+                              if (wrapEl) {
+                                const handleRect = handleEl.getBoundingClientRect();
+                                const fieldRect = wrapEl.getBoundingClientRect();
+                                const offsetX = (handleRect.left + handleRect.width / 2) - fieldRect.left;
+                                const offsetY = (handleRect.top + handleRect.height / 2) - fieldRect.top;
+                                const clone = wrapEl.cloneNode(true) as HTMLElement;
+                                clone.style.width = `${wrapEl.offsetWidth}px`;
+                                clone.style.position = "absolute";
+                                clone.style.top = "-9999px";
+                                clone.style.left = "-9999px";
+                                clone.style.opacity = "0.85";
+                                clone.style.borderRadius = "8px";
+                                clone.style.background = "var(--color-base-surface-primary)";
+                                clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+                                document.body.appendChild(clone);
+                                e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                                requestAnimationFrame(() => clone.remove());
+                              }
+                            }}
+                            onDragEnd={() => { setTabDropInsertIdx(null); setTabRowJoinTarget(null); setTabHReorderTarget(null); setTabFieldDragId(null); }}
+                            className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover/tabaction:opacity-100 transition-opacity mt-2.5"
+                          >
+                            <PreviewDragHandleIcon />
+                          </div>
+                          <div className="flex-1 min-w-0 pt-1 flex items-center gap-2">
+                            <EditablePreviewActionButton
+                              label={item.label}
+                              onLabelChange={(next) => onUpdateField(item.id, { label: next })}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => onRemoveField(item.id)}
+                              className="shrink-0 p-1 rounded-md text-[var(--color-base-tertiary)] opacity-0 group-hover/tabaction:opacity-100 hover:text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/10 transition-all"
+                              title="Delete"
+                            >
+                              <PreviewDeleteIcon />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (item.kind === "tabs") {
+                      return (
+                        <div
+                          key={item.id}
+                          data-tab-field-id={item.id}
+                          className={`group/tabtabs relative flex items-start gap-1.5 rounded-lg px-2 py-2 transition-all duration-200 w-full min-w-0 ${
+                            tabFieldDragId === item.id ? "opacity-30 scale-[0.97]" : "hover:bg-[var(--color-base-surface-secondary)]"
+                          }`}
+                        >
+                          <div
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("tab-field-reorder", item.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setTabFieldDragId(item.id);
+                              const handleEl = e.currentTarget as HTMLElement;
+                              const wrapEl = handleEl.closest("[data-tab-field-id]") as HTMLElement | null;
+                              if (wrapEl) {
+                                const handleRect = handleEl.getBoundingClientRect();
+                                const fieldRect = wrapEl.getBoundingClientRect();
+                                const offsetX = (handleRect.left + handleRect.width / 2) - fieldRect.left;
+                                const offsetY = (handleRect.top + handleRect.height / 2) - fieldRect.top;
+                                const clone = wrapEl.cloneNode(true) as HTMLElement;
+                                clone.style.width = `${wrapEl.offsetWidth}px`;
+                                clone.style.position = "absolute";
+                                clone.style.top = "-9999px";
+                                clone.style.left = "-9999px";
+                                clone.style.opacity = "0.85";
+                                clone.style.borderRadius = "8px";
+                                clone.style.background = "var(--color-base-surface-primary)";
+                                clone.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)";
+                                document.body.appendChild(clone);
+                                e.dataTransfer.setDragImage(clone, offsetX, offsetY);
+                                requestAnimationFrame(() => clone.remove());
+                              }
+                            }}
+                            onDragEnd={() => { setTabDropInsertIdx(null); setTabRowJoinTarget(null); setTabHReorderTarget(null); setTabFieldDragId(null); }}
+                            className="shrink-0 cursor-grab active:cursor-grabbing touch-none text-[var(--color-base-tertiary)] opacity-0 group-hover/tabtabs:opacity-100 transition-opacity mt-2"
+                          >
+                            <PreviewDragHandleIcon />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <TabsPreview
+                              rootTabsId={rootTabsId}
+                              tabsPath={[...tabsPath, item.id]}
+                              tabsItem={item}
+                              updateTabsItem={updateTabsItem}
+                              addFieldToTab={addFieldToTab}
+                              removeFieldFromTab={removeFieldFromTab}
+                              updateFieldInTab={updateFieldInTab}
+                              updateTableInTab={updateTableInTab}
+                              onDelete={() => onRemoveField(item.id)}
+                              onClearParentIndicators={onClearParentIndicators}
+                            />
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (item.kind !== "field") return null;
+                    const field = item;
                     const isFieldMulti = rowGroup.items.length > 1;
                     const fieldJoinLeft = tabRowJoinTarget?.fieldId === field.id && tabRowJoinTarget.side === "left";
                     const fieldJoinRight = tabRowJoinTarget?.fieldId === field.id && tabRowJoinTarget.side === "right";
@@ -4177,12 +5068,14 @@ function TabsPreview({
                           }
 
                           if (isPalette || isReorder) {
-                            if (isPalette && e.dataTransfer.types.includes("palette-is-tabs")) return;
                             if (isPalette && e.dataTransfer.types.includes("palette-is-action")) return;
                             if (isPalette && e.dataTransfer.types.includes("palette-is-textarea")) return;
+                            if (isPalette && e.dataTransfer.types.includes("palette-is-section")) return;
+                            if (isPalette && e.dataTransfer.types.includes("palette-is-table")) return;
                             if (isReorder && tabFieldDragId) {
                               const dragItem = activeTab?.items.find(i => i.id === tabFieldDragId);
                               if (!dragItem) return;
+                              if (dragItem.kind !== "field") return;
                               if (dragItem.kind === "field" && dragItem.type === "textarea") return;
                               if (dragItem.rowId === field.rowId) return;
                             }
@@ -4246,7 +5139,7 @@ function TabsPreview({
                           if (paletteData) {
                             try {
                               const { type, label } = JSON.parse(paletteData) as { type: string; label: string };
-                              if (type !== "tabs") onAddField(type, label, rowGroup.rowId);
+                              onAddField(type, label, rowGroup.rowId);
                             } catch { /* ignore */ }
                           }
                         }}
@@ -4298,7 +5191,7 @@ function TabsPreview({
                                   className="absolute inset-0 w-full text-label-normal text-[var(--color-base-primary)] bg-transparent border-0 border-b border-transparent hover:border-[var(--color-base-stroke)] focus:border-[var(--color-brand-primary)] outline-none transition-colors px-0 py-0"
                                   placeholder="Field name"
                                 />
-                                {field.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-none">*</span>}
+                                {field.required && <span className="text-[var(--color-status-error)] ml-0.5 shrink-0 leading-[0] text-xs align-top">*</span>}
                               </span>
                               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 ml-2 text-[var(--color-base-tertiary)] opacity-0 group-hover/tabfield:opacity-100 transition-opacity">
                                 <path d="M14.4875 1.51246C14.1593 1.18433 13.7142 1 13.2502 1C12.7861 1 12.341 1.18433 12.0128 1.51246L11.2415 2.28379L13.7162 4.75846L14.4875 3.98713C14.8156 3.65895 15 3.21387 15 2.74979C15 2.28571 14.8156 1.84064 14.4875 1.51246ZM13.0088 5.46579L10.5342 2.99113L2.43417 11.0911C2.02274 11.5024 1.72029 12.0096 1.55417 12.5671L1.02084 14.3571C0.995087 14.4435 0.993167 14.5352 1.01528 14.6226C1.03739 14.71 1.08271 14.7898 1.14645 14.8535C1.21018 14.9173 1.28996 14.9626 1.37734 14.9847C1.46472 15.0068 1.55646 15.0049 1.64284 14.9791L3.43284 14.4458C3.99032 14.2797 4.49761 13.9772 4.90884 13.5658L13.0088 5.46579Z" fill="currentColor"/>
@@ -4340,6 +5233,19 @@ function TabsPreview({
                             />
                           ) : field.type === "number" ? (
                             <Input disabled={field.readOnly} type="number" placeholder="0" rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : field.type === "coins" ? (
+                            <Input disabled={field.readOnly} type="number" placeholder="10 000" leftIcon={<CoinIcon />} rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : field.type === "diamonds" ? (
+                            <Input disabled={field.readOnly} type="number" placeholder="10 000" leftIcon={<DiamondIcon />} rightIcon={field.copyable ? <PreviewCopyIcon /> : undefined} />
+                          ) : field.type === "percents" ? (
+                            <Input
+                              disabled={field.readOnly}
+                              type="text"
+                              value={field.placeholder ?? ""}
+                              onChange={(e) => onUpdateField(field.id, { placeholder: e.target.value })}
+                              placeholder="0"
+                              rightIcon={<PercentIcon />}
+                            />
                           ) : field.type === "date-time" ? (
                             <Input disabled={field.readOnly} placeholder="Select Date" rightIcon={
                               field.copyable ? <PreviewCopyIcon /> :
@@ -4551,10 +5457,16 @@ function PageLayoutWireframe({ activeZone }: { activeZone: "zoneB" | "properties
 // Unified section item: field, action, or tabs container
 type TabDefinition = { id: string; label: string; items: SectionItem[] };
 
+type TableColumnDef = { id: string; label: string };
+type TableCellDef = { type: string; placeholder?: string };
+type TableRowDef = { id: string; cells: Record<string, TableCellDef | null> };
+
 type SectionItem =
   | { id: string; kind: "field"; label: string; type: string; required?: boolean; autoGenerated?: boolean; placeholder?: string; copyable?: boolean; readOnly?: boolean; rowId: string }
   | { id: string; kind: "action"; label: string; rowId: string }
-  | { id: string; kind: "tabs"; rowId: string; tabs: TabDefinition[]; activeTabId: string };
+  | { id: string; kind: "tabs"; rowId: string; tabs: TabDefinition[]; activeTabId: string }
+  | { id: string; kind: "section"; title: string; rowId: string }
+  | { id: string; kind: "table"; rowId: string; columns: TableColumnDef[]; rows: TableRowDef[] };
 
 type RowGroup = { rowId: string; items: SectionItem[] };
 
@@ -4596,16 +5508,42 @@ const FIELD_PALETTE_ITEMS = [
   { type: "input", label: "Text Field", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="8" y="11" width="1.5" height="6" rx="0.75" fill="currentColor"/></svg> },
   { type: "select", label: "Dropdown", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><path d="M20 13L18 15L16 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
   { type: "date-time", label: "Date Picker", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="5.75" y="6.75" width="16.5" height="14.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="23" y="10" width="1.5" height="18" rx="0.75" transform="rotate(90 23 10)" fill="currentColor"/><rect x="10" y="9" width="1.5" height="5" rx="0.75" transform="rotate(-180 10 9)" fill="currentColor"/><rect x="19" y="9" width="1.5" height="5" rx="0.75" transform="rotate(-180 19 9)" fill="currentColor"/></svg> },
-  { type: "number", label: "Number Field", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><path d="M10.657 13.5107V14.4652C10.657 14.9225 10.6136 15.3128 10.5268 15.6364C10.4426 15.9572 10.32 16.2179 10.1592 16.4184C9.99836 16.619 9.80562 16.766 9.58096 16.8596C9.35886 16.9532 9.10996 17 8.83425 17C8.6147 17 8.41047 16.9706 8.22155 16.9118C8.03519 16.8529 7.8667 16.7607 7.71608 16.635C7.56546 16.5094 7.43654 16.3476 7.32932 16.1497C7.22465 15.9492 7.14296 15.7099 7.08425 15.4318C7.02808 15.1537 7 14.8316 7 14.4652V13.5107C7 13.0508 7.0434 12.6631 7.1302 12.3476C7.21699 12.0294 7.34081 11.7714 7.50164 11.5735C7.66247 11.373 7.85394 11.2273 8.07604 11.1364C8.30069 11.0455 8.55088 11 8.82659 11C9.04869 11 9.25292 11.0294 9.43928 11.0882C9.62819 11.1444 9.79668 11.234 9.94475 11.357C10.0954 11.4799 10.223 11.6404 10.3277 11.8382C10.4349 12.0334 10.5166 12.2701 10.5728 12.5481C10.6289 12.8235 10.657 13.1444 10.657 13.5107ZM9.73414 14.6016V13.3663C9.73414 13.1337 9.72137 12.9291 9.69584 12.7527C9.67031 12.5735 9.63202 12.4225 9.58096 12.2995C9.53246 12.1738 9.47119 12.0722 9.39716 11.9947C9.32312 11.9144 9.23888 11.857 9.14442 11.8222C9.04996 11.7848 8.94402 11.766 8.82659 11.766C8.68363 11.766 8.55598 11.7955 8.44365 11.8543C8.33133 11.9104 8.23687 12.0013 8.16028 12.127C8.0837 12.2527 8.02498 12.4184 7.98414 12.6243C7.94584 12.8275 7.9267 13.0749 7.9267 13.3663V14.6016C7.9267 14.8369 7.93946 15.0441 7.96499 15.2233C7.99052 15.4024 8.02881 15.5561 8.07987 15.6845C8.13093 15.8102 8.1922 15.9144 8.26368 15.9973C8.33771 16.0775 8.42195 16.1364 8.51641 16.1738C8.61342 16.2112 8.71937 16.2299 8.83425 16.2299C8.97976 16.2299 9.10868 16.2005 9.22101 16.1417C9.33333 16.0829 9.42779 15.9893 9.50438 15.861C9.58096 15.7299 9.6384 15.5602 9.6767 15.3516C9.71499 15.143 9.73414 14.893 9.73414 14.6016Z" fill="currentColor"/><path d="M14 11.0602V16.9198H13.0771V12.2072L11.7101 12.6925V11.8944L13.8889 11.0602H14Z" fill="currentColor"/></svg> },
   { type: "textarea", label: "Text Area", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="5.75" y="6.75" width="16.5" height="14.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="20" y="10" width="1.5" height="12" rx="0.75" transform="rotate(90 20 10)" fill="currentColor"/><rect x="20" y="13" width="1.5" height="12" rx="0.75" transform="rotate(90 20 13)" fill="currentColor"/><rect x="14" y="16" width="1.5" height="6" rx="0.75" transform="rotate(90 14 16)" fill="currentColor"/></svg> },
+];
+
+const CoinIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <path fillRule="evenodd" clipRule="evenodd" d="M1.5 6C1.5 3.51472 3.51472 1.5 6 1.5C8.48528 1.5 10.5 3.51472 10.5 6C10.5 8.48528 8.48528 10.5 6 10.5C3.51472 10.5 1.5 8.48528 1.5 6Z" fill="#FFD200"/>
+    <circle cx="6" cy="6" r="3" fill="#FFE749"/>
+    <path fillRule="evenodd" clipRule="evenodd" d="M6.0965 7.29552C6.03608 7.26231 5.96391 7.26231 5.9035 7.29552L5.06598 7.75586C4.91385 7.83948 4.73605 7.70442 4.7651 7.52732L4.92506 6.55229C4.93659 6.48196 4.91429 6.4102 4.86542 6.36039L4.18785 5.66987C4.06477 5.54444 4.13269 5.32591 4.30277 5.30007L5.23915 5.15782C5.30669 5.14755 5.36508 5.1032 5.39529 5.03922L5.81405 4.1521C5.89011 3.99097 6.10989 3.99097 6.18595 4.1521L6.60471 5.03922C6.63492 5.1032 6.69331 5.14755 6.76085 5.15782L7.69723 5.30007C7.86731 5.32591 7.93523 5.54444 7.81215 5.66987L7.13458 6.36039C7.08571 6.4102 7.06341 6.48196 7.07494 6.55229L7.2349 7.52732C7.26395 7.70442 7.08615 7.83948 6.93402 7.75587L6.0965 7.29552Z" fill="#FEBE43"/>
+  </svg>
+);
+
+const DiamondIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+    <path d="M10.3979 4.68396C10.3688 4.80698 10.3139 4.92469 10.229 5.02576L6.71924 9.21228C6.63444 9.31379 6.5255 9.39592 6.40088 9.45251C6.27611 9.50917 6.13856 9.53845 5.99951 9.53845C5.86065 9.53841 5.72374 9.50906 5.59912 9.45251C5.47435 9.39586 5.36464 9.31395 5.27979 9.21228L1.77002 5.02576C1.68513 4.92466 1.63025 4.80702 1.60107 4.68396H10.3979ZM8.21729 2.4613C8.46078 2.46269 8.69458 2.55234 8.8667 2.7113L10.1587 3.90369C10.2783 4.01629 10.3597 4.15714 10.3979 4.30896H1.60107C1.63932 4.15708 1.72161 4.01632 1.84131 3.90369L3.1333 2.7113C3.30536 2.55249 3.53839 2.46272 3.78174 2.4613H8.21729Z" fill="#8B8D94"/>
+  </svg>
+);
+
+const PercentIcon = () => (
+  <span className="inline-flex items-center justify-center size-[22px] rounded-md bg-[var(--color-base-surface-secondary)] text-xs font-semibold text-[var(--color-base-secondary)]">%</span>
+);
+
+const NUMBER_PALETTE_ITEMS = [
+  { type: "number", label: "Number Field", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><text x="14" y="17" textAnchor="middle" fontSize="9" fontWeight="600" fill="currentColor">01</text></svg> },
+  { type: "coins", label: "Coins", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><circle cx="14" cy="14" r="3" fill="#FFD200"/><circle cx="14" cy="14" r="1.5" fill="#FFE749"/></svg> },
+  { type: "diamonds", label: "Diamonds", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><path d="M17 12.5L14 17L11 12.5L12.5 11H15.5L17 12.5Z" fill="#8B8D94"/></svg> },
+  { type: "percents", label: "Percents", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><text x="14" y="17" textAnchor="middle" fontSize="9" fontWeight="600" fill="currentColor">%</text></svg> },
 ];
 
 const OTHER_PALETTE_ITEMS = [
   { type: "tabs", label: "Tabs", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="10.75" width="18.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.5"/><rect x="5" y="7" width="7" height="4" rx="2" fill="currentColor"/><rect x="14" y="7" width="7" height="4" rx="2" stroke="currentColor" strokeWidth="1"/></svg> },
+  { type: "table", label: "Table", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="6.75" width="18.5" height="14.5" rx="2.25" stroke="currentColor" strokeWidth="1.5"/><path d="M5 11H23M5 16H23M11 7V21M17 7V21" stroke="currentColor" strokeWidth="1.2"/></svg> },
   { type: "action", label: "Button", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="17" y="13" width="1.5" height="6" rx="0.75" transform="rotate(90 17 13)" fill="currentColor"/></svg> },
+  { type: "section", label: "Section Title", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M6 10H22M6 14H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
 ];
 
-const PALETTE_ITEMS = [...FIELD_PALETTE_ITEMS, ...OTHER_PALETTE_ITEMS];
+const PALETTE_ITEMS = [...FIELD_PALETTE_ITEMS, ...NUMBER_PALETTE_ITEMS, ...OTHER_PALETTE_ITEMS];
 
 // Step 1: Create Page (P-03) — tabbed: Properties Panel + Content Sections
 function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepProps & { activeTab: "sections" | "properties"; setActiveTab: (tab: "sections" | "properties") => void }) {
@@ -4750,6 +5688,41 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
               </div>
             </div>
 
+            {/* Numbers */}
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-[var(--color-base-primary)]">Numbers</p>
+              <div className="flex flex-wrap gap-2">
+                {NUMBER_PALETTE_ITEMS.map((pi) => (
+                  <div
+                    key={pi.type}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                      e.dataTransfer.effectAllowed = "copy";
+                      const el = e.currentTarget as HTMLElement;
+                      const elRect = el.getBoundingClientRect();
+                      const clone = el.cloneNode(true) as HTMLElement;
+                      clone.style.width = `${el.offsetWidth}px`;
+                      clone.style.position = "absolute";
+                      clone.style.top = "-9999px";
+                      clone.style.left = "-9999px";
+                      clone.style.opacity = "0.9";
+                      document.body.appendChild(clone);
+                      e.dataTransfer.setDragImage(clone, e.clientX - elRect.left, e.clientY - elRect.top);
+                      requestAnimationFrame(() => clone.remove());
+                    }}
+                    className="flex items-center gap-2 h-11 pl-2.5 pr-2 rounded-[16px] bg-[var(--color-base-surface-secondary)] cursor-grab active:cursor-grabbing hover:bg-[var(--color-base-stroke)] transition-colors select-none"
+                  >
+                    <span className="shrink-0 size-7 flex items-center justify-center text-[var(--color-base-secondary)]">
+                      {pi.icon}
+                    </span>
+                    <span className="text-sm font-medium text-[var(--color-base-primary)] whitespace-nowrap">{pi.label}</span>
+                    {DRAG_HANDLE_ICON}
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Other */}
             <div className="space-y-2">
               <p className="text-sm font-medium text-[var(--color-base-primary)]">Other</p>
@@ -4762,6 +5735,8 @@ function StepCreatePage({ intent, updateIntent, activeTab, setActiveTab }: StepP
                       e.dataTransfer.setData("palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
                       if (pi.type === "action") e.dataTransfer.setData("palette-is-action", "1");
                       if (pi.type === "tabs") e.dataTransfer.setData("palette-is-tabs", "1");
+                      if (pi.type === "section") e.dataTransfer.setData("palette-is-section", "1");
+                      if (pi.type === "table") e.dataTransfer.setData("palette-is-table", "1");
                       e.dataTransfer.effectAllowed = "copy";
                       const el = e.currentTarget as HTMLElement;
                       const elRect = el.getBoundingClientRect();
@@ -5159,10 +6134,10 @@ function detailsItemsToSections(items: DetailsItem[]): CreatePageConfig["propert
 
 const DETAILS_OTHER_PALETTE_ITEMS = [
   { type: "action", label: "Button", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><rect x="4.75" y="8.75" width="18.5" height="10.5" rx="3.25" stroke="currentColor" strokeWidth="1.5"/><rect x="17" y="13" width="1.5" height="6" rx="0.75" transform="rotate(90 17 13)" fill="currentColor"/></svg> },
-  { type: "section", label: "Section", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M6 10H22M6 14H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
+  { type: "section", label: "Section Title", icon: <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M6 10H22M6 14H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg> },
 ];
 
-const DETAILS_PALETTE_ITEMS = [...FIELD_PALETTE_ITEMS, ...DETAILS_OTHER_PALETTE_ITEMS];
+const DETAILS_PALETTE_ITEMS = [...FIELD_PALETTE_ITEMS, ...NUMBER_PALETTE_ITEMS, ...DETAILS_OTHER_PALETTE_ITEMS];
 
 function PropertiesEditor({ config, updateIntent, intent, hoveredFieldId, onHoverField }: { config: CreatePageConfig; updateIntent: StepProps["updateIntent"]; intent: WizardIntent; hoveredFieldId?: string | null; onHoverField?: (id: string | null) => void }) {
 
@@ -5173,6 +6148,41 @@ function PropertiesEditor({ config, updateIntent, intent, hoveredFieldId, onHove
         <p className="text-sm font-medium text-[var(--color-base-primary)]">Fields</p>
         <div className="flex flex-wrap gap-2">
           {FIELD_PALETTE_ITEMS.map((pi) => (
+            <div
+              key={pi.type}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("details-palette-component", JSON.stringify({ type: pi.type, label: pi.label }));
+                e.dataTransfer.effectAllowed = "copy";
+                const el = e.currentTarget as HTMLElement;
+                const elRect = el.getBoundingClientRect();
+                const clone = el.cloneNode(true) as HTMLElement;
+                clone.style.width = `${el.offsetWidth}px`;
+                clone.style.position = "absolute";
+                clone.style.top = "-9999px";
+                clone.style.left = "-9999px";
+                clone.style.opacity = "0.9";
+                document.body.appendChild(clone);
+                e.dataTransfer.setDragImage(clone, e.clientX - elRect.left, e.clientY - elRect.top);
+                requestAnimationFrame(() => clone.remove());
+              }}
+              className="flex items-center gap-2 h-11 pl-2.5 pr-2 rounded-[16px] bg-[var(--color-base-surface-secondary)] cursor-grab active:cursor-grabbing hover:bg-[var(--color-base-stroke)] transition-colors select-none"
+            >
+              <span className="shrink-0 size-7 flex items-center justify-center text-[var(--color-base-secondary)]">
+                {pi.icon}
+              </span>
+              <span className="text-sm font-medium text-[var(--color-base-primary)] whitespace-nowrap">{pi.label}</span>
+              {DRAG_HANDLE_ICON}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Numbers */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-[var(--color-base-primary)]">Numbers</p>
+        <div className="flex flex-wrap gap-2">
+          {NUMBER_PALETTE_ITEMS.map((pi) => (
             <div
               key={pi.type}
               draggable
@@ -5322,6 +6332,32 @@ function StepTableColumns({ intent, updateIntent }: StepProps) {
   const tableColumns = (intent.selectedFields?.tableColumns || []).filter(
     (f): f is FieldRef => f != null && typeof f.id === "string"
   );
+
+  const configFieldById = React.useMemo(
+    () => new Map(configFields.map((f) => [f.id, f])),
+    [configFields],
+  );
+
+  // Prune removed fields + sync labels/dataType from create page (e.g. Details "Title" → "Name")
+  React.useEffect(() => {
+    const next = tableColumns
+      .filter((c) => configFieldById.has(c.id))
+      .map((col) => {
+        const fresh = configFieldById.get(col.id)!;
+        if (fresh.label === col.label && fresh.dataType === col.dataType) return col;
+        return { ...col, label: fresh.label, dataType: fresh.dataType };
+      });
+    const unchanged =
+      next.length === tableColumns.length &&
+      next.every(
+        (c, i) =>
+          c.id === tableColumns[i].id &&
+          c.label === tableColumns[i].label &&
+          c.dataType === tableColumns[i].dataType,
+      );
+    if (unchanged) return;
+    updateIntent({ selectedFields: { ...intent.selectedFields, tableColumns: next } });
+  }, [configFieldById, tableColumns, intent.selectedFields, updateIntent]);
 
   const orderedFields = React.useMemo(() => {
     const orderMap = new Map(tableColumns.map((f, i) => [f.id, i]));
@@ -5741,6 +6777,24 @@ function StepActions({ intent, updateIntent }: StepProps) {
             </div>
           </label>
         </div>
+      </div>
+
+      <div>
+        <h4 className="text-sm font-medium text-[var(--color-base-primary)] mb-3">
+          Table
+        </h4>
+        <label className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-base-stroke)] cursor-pointer hover:bg-[var(--color-base-surface-secondary)]">
+          <WizardCheckbox
+            checked={intent.bulkActions.multiselect}
+            onChange={() => toggleBulkAction("multiselect")}
+          />
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[var(--color-base-primary)] font-medium">Multiselect rows</span>
+            <span className="text-xs text-[var(--color-base-tertiary)]">
+              Show checkboxes to select multiple items in the table (same reveal animation as the Actions column in this preview).
+            </span>
+          </div>
+        </label>
       </div>
 
     </div>

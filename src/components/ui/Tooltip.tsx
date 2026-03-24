@@ -201,6 +201,8 @@ export const Tooltip = ({
   const [isVisible, setIsVisible] = useState(false);
   const [isPositioned, setIsPositioned] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0 });
+  /** Після flip знизу/зверху — стрілка відповідає фактичному положенню */
+  const [arrowSide, setArrowSide] = useState<TooltipPosition>(position);
   const triggerRef = useRef<HTMLElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -212,15 +214,23 @@ export const Tooltip = ({
     return () => setMounted(false);
   }, []);
 
+  useEffect(() => {
+    setArrowSide(position);
+  }, [position]);
+
   const calculatePosition = useCallback(() => {
     if (!triggerRef.current || !tooltipRef.current) return;
 
     const triggerRect = triggerRef.current.getBoundingClientRect();
     const tooltipRect = tooltipRef.current.getBoundingClientRect();
     const gap = 8;
+    const pad = 8;
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
 
     let top = 0;
     let left = 0;
+    let visual = position;
 
     // Calculate position based on placement
     switch (position) {
@@ -270,6 +280,25 @@ export const Tooltip = ({
       }
     }
 
+    // Flip вертикально, якщо тултіп виходить за екран
+    if (position === "bottom" && top + tooltipRect.height > vh - pad) {
+      top = Math.max(pad, triggerRect.top - tooltipRect.height - gap);
+      visual = "top";
+    } else if (position === "top" && top < pad) {
+      top = Math.min(triggerRect.bottom + gap, vh - pad - tooltipRect.height);
+      visual = "bottom";
+    }
+
+    // Flip горизонтально (left/right)
+    if (position === "right" && left + tooltipRect.width > vw - pad) {
+      left = Math.max(pad, triggerRect.left - tooltipRect.width - gap);
+      visual = "left";
+    } else if (position === "left" && left < pad) {
+      left = Math.min(triggerRect.right + gap, vw - pad - tooltipRect.width);
+      visual = "right";
+    }
+
+    setArrowSide(visual);
     setCoords({ top, left });
     setIsPositioned(true);
   }, [position, align]);
@@ -319,22 +348,6 @@ export const Tooltip = ({
       })
     : children;
 
-  // Get arrow position (opposite of tooltip position)
-  const getArrowPosition = (): TooltipPosition => {
-    switch (position) {
-      case "top":
-        return "top";
-      case "bottom":
-        return "bottom";
-      case "left":
-        return "left";
-      case "right":
-        return "right";
-      default:
-        return "top";
-    }
-  };
-
   const tooltipElement = isVisible && mounted && (
     createPortal(
       <div
@@ -354,7 +367,7 @@ export const Tooltip = ({
         }}
       >
         {typeof content === "string" ? (
-          <TooltipContent arrowPosition={getArrowPosition()} arrowAlign={align}>
+          <TooltipContent arrowPosition={arrowSide} arrowAlign={align}>
             {content}
           </TooltipContent>
         ) : (

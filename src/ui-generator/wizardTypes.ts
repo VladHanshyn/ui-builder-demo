@@ -48,6 +48,8 @@ export interface RowActionsConfig {
 
 // Bulk action options
 export interface BulkActionsConfig {
+  /** Row checkboxes in the table (independent of Approve/Reject bulk). */
+  multiselect: boolean;
   approveSelected: boolean;
   rejectSelected: boolean;
   rejectRequiresReason: boolean;
@@ -209,6 +211,7 @@ export function createDefaultWizardIntent(): WizardIntent {
       delete: true,
     },
     bulkActions: {
+      multiselect: false,
       approveSelected: false,
       rejectSelected: false,
       rejectRequiresReason: false,

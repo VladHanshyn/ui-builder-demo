@@ -8,13 +8,72 @@ import { Select, SimpleSelect } from "@/components/ui/Select";
 import { ButtonGroup, ButtonGroupItem } from "@/components/ui/ButtonGroup";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 import { ConfirmModal } from "@/components/ui/Modal";
+import { Toggle } from "@/components/ui/Toggle";
+import { Checkbox } from "@/components/ui/Checkbox";
 import type { UISpec, TableColumn, FilterConfig } from "../types";
+
+const SELECT_COL_PX = 32;
+
+/** Відповідає `pl-2` (8px) + ButtonGroup (size-8, −mr-px) + `pr-[12px]` — щоб колонка Actions не розтягувалась на всю таблицю */
+const ACTIONS_CELL_PAD_L = 8;
+const ACTIONS_CELL_PAD_R = 12;
+const ACTIONS_BTN_PX = 32;
+
+function countVisibleRowActions(col: TableColumn): number {
+  const a = col.actions ?? {};
+  let n = 0;
+  if (a.view !== false) n += 1;
+  if (a.edit === true) n += 1;
+  if (a.duplicate === true) n += 1;
+  if (a.delete !== false) n += 1;
+  return n;
+}
+
+/** Зовнішня ширина комірки Actions (px): тільки контент + 8px зліва + 12px справа (ігноруємо завищений `col.width` у специ, щоб колонка не розтягувалась). */
+function getActionsColumnOuterWidthPx(col: TableColumn): number {
+  const n = countVisibleRowActions(col);
+  if (n <= 0) return ACTIONS_CELL_PAD_L + ACTIONS_CELL_PAD_R;
+  const groupW = n * ACTIONS_BTN_PX - Math.max(0, n - 1);
+  return ACTIONS_CELL_PAD_L + groupW + ACTIONS_CELL_PAD_R;
+}
+
+/** Колонка Duration: ширина за контентом, без переносу діапазону дат */
+function isDurationColumn(col: TableColumn): boolean {
+  return col.type === "duration";
+}
+
+/** Мін. ширина для Title та колонок Audience / General Audience */
+const TABLE_COL_WIDE_MIN_PX = "240px";
+
+/** Колонки «Audience» / «General Audience» */
+function isAudienceColumn(col: TableColumn): boolean {
+  const n = col.label.toLowerCase().trim();
+  return n === "audience" || n === "general audience";
+}
+
+function formatDurationParts(raw: string | undefined): { date: string; time: string } | null {
+  if (!raw?.trim()) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return { date: raw.trim(), time: "" };
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return { date: `${dd}.${mm}.${yyyy}`, time: `${hh}:${min}` };
+}
 
 interface PreviewRendererProps {
   spec: UISpec | null;
   errors?: string[];
   onOpenWizard?: () => void;
   onCreateClick?: () => void;
+  /** Phoenix: відкрити візард зі збереженим intent (апрувнута сторінка). */
+  onEditInWizard?: () => void;
+  /** Немає збереженого intent — показати неактивну кнопку */
+  editInWizardUnavailable?: boolean;
+  /** Approved pages: open CSV file picker to append rows (Phoenix). */
+  onUploadCsvClick?: () => void;
   /** Called when user clicks Edit on a row: (rowData, indexInSavedRows) */
   onEditRow?: (row: Record<string, string>, rowIndex: number) => void;
   /** Called when user clicks Duplicate on a row: (rowData, indexInSavedRows) */
@@ -22,7 +81,18 @@ interface PreviewRendererProps {
   savedRows?: Record<string, string>[];
 }
 
-export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick, onEditRow, onDuplicateRow, savedRows }: PreviewRendererProps) {
+export function PreviewRenderer({
+  spec,
+  errors = [],
+  onOpenWizard,
+  onCreateClick,
+  onEditInWizard,
+  editInWizardUnavailable = false,
+  onUploadCsvClick,
+  onEditRow,
+  onDuplicateRow,
+  savedRows,
+}: PreviewRendererProps) {
   // State for interactivity
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
@@ -36,6 +106,9 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
   const itemsPerPage = 20;
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const [deleteConfirmIdx, setDeleteConfirmIdx] = useState<number | null>(null);
+  const [bulkDeleteConfirmOpen, setBulkDeleteConfirmOpen] = useState(false);
+  /** Apply default sort only when spec/page changes — avoids clobbering sort or racing with setSortColumn(null). */
+  const prevSpecIdForSortRef = useRef<string | null>(null);
 
   const columns = spec?.table?.columns ?? [];
 
@@ -55,30 +128,41 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
     return savedRows ?? [];
   }, [columns.length, savedRows]);
 
-  // Default sort: by _createdAt (newest first) when data has it, else by date column or first column
+  // Default sort when opening a page/spec: newest first by creation time
   const dateColumnId = useMemo(() => columns.find(c => c.type === "date")?.id ?? null, [columns]);
-  useEffect(() => {
-    if (!columns.length) return;
-    const hasCreatedAt = allTableData.some((r: Record<string, string>) => r._createdAt != null);
-    if (hasCreatedAt) {
-      setSortColumn("_createdAt");
-      setSortDirection("desc");
-    } else if (sortColumn === null) {
-      if (dateColumnId) {
-        setSortColumn(dateColumnId);
-        setSortDirection("desc");
-      } else if (columns[0]?.id && columns[0].type !== "actions") {
-        setSortColumn(columns[0].id);
-        setSortDirection("desc");
-      }
-    }
-  }, [columns.length, dateColumnId, allTableData.length, sortColumn]);
-
-  // Reset sort when switching page/spec so default sort applies
   const specId = spec?.page?.id ?? (spec?.table?.columns?.map((c: { id: string }) => c.id).join(",") ?? "");
   useEffect(() => {
-    setSortColumn(null);
-  }, [specId]);
+    if (!columns.length) return;
+    const specChanged = prevSpecIdForSortRef.current !== specId;
+    prevSpecIdForSortRef.current = specId;
+    if (!specChanged) return;
+
+    const hasInternalCreatedAt = allTableData.some(
+      (r: Record<string, string>) => r._createdAt != null && String(r._createdAt).trim() !== "",
+    );
+    if (hasInternalCreatedAt) {
+      setSortColumn("_createdAt");
+      setSortDirection("desc");
+      return;
+    }
+
+    const createdAtByLabel =
+      columns.find((c) => c.type === "date" && /created\s*at/i.test(c.label || "")) ??
+      columns.find((c) => c.type === "date" && /created/i.test(c.id));
+    const fallbackDate = createdAtByLabel ?? (dateColumnId ? columns.find((c) => c.id === dateColumnId) : undefined) ?? columns.find((c) => c.type === "date");
+    if (fallbackDate) {
+      setSortColumn(fallbackDate.id);
+      setSortDirection("desc");
+      return;
+    }
+
+    const first = columns.find((c) => c.type !== "actions");
+    if (first) {
+      setSortColumn(first.id);
+      setSortDirection("desc");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset sort when spec/columns change; allTableData read here is current for that navigation
+  }, [specId, columns, dateColumnId]);
 
   // Filter data based on search and filters
   const filteredData = useMemo(() => {
@@ -153,37 +237,56 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
     return filteredData.slice(start, start + itemsPerPage);
   }, [filteredData, currentPage]);
 
-  // Handle row selection
-  const handleSelectRow = useCallback((rowIdx: number) => {
+  /** Checkbox-індекси відносяться до поточної сторінки `tableData`; deletedRows — індекси в `allTableData`. */
+  const selectedOriginalIndices = useMemo(() => {
+    const out = new Set<number>();
+    selectedRows.forEach((pageIdx) => {
+      const row = tableData[pageIdx];
+      if (!row) return;
+      const oi = allTableData.findIndex((r) => r === row);
+      if (oi >= 0) out.add(oi);
+    });
+    return out;
+  }, [selectedRows, tableData, allTableData]);
+
+  useEffect(() => {
+    setSelectedRows(new Set());
+  }, [currentPage, searchQuery, filterValues, sortColumn, sortDirection]);
+
+  const setRowSelected = useCallback((rowIdx: number, selected: boolean) => {
     setSelectedRows((prev) => {
       const next = new Set(prev);
-      if (next.has(rowIdx)) {
-        next.delete(rowIdx);
-      } else {
-        next.add(rowIdx);
-      }
+      if (selected) next.add(rowIdx);
+      else next.delete(rowIdx);
       return next;
     });
   }, []);
 
-  // Handle select all
-  const handleSelectAll = useCallback(() => {
-    if (selectedRows.size === tableData.length) {
-      setSelectedRows(new Set());
-    } else {
-      setSelectedRows(new Set(tableData.map((_, idx) => idx)));
-    }
-  }, [selectedRows.size, tableData.length]);
+  /** Вибір усіх рядків на поточній сторінці (узгоджено з Checkbox onCheckedChange) */
+  const handlePageSelectAllChange = useCallback((checked: boolean) => {
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (checked) {
+        for (let i = 0; i < tableData.length; i++) next.add(i);
+      } else {
+        for (let i = 0; i < tableData.length; i++) next.delete(i);
+      }
+      return next;
+    });
+  }, [tableData]);
 
   // Handle delete row (with confirmation)
   const handleDeleteRow = useCallback((originalIdx: number) => {
     setDeletedRows((prev) => new Set([...prev, originalIdx]));
     setSelectedRows((prev) => {
       const next = new Set(prev);
-      next.delete(originalIdx);
+      tableData.forEach((row, pageIdx) => {
+        const oi = allTableData.findIndex((r) => r === row);
+        if (oi === originalIdx) next.delete(pageIdx);
+      });
       return next;
     });
-  }, []);
+  }, [tableData, allTableData]);
 
   const requestDeleteRow = useCallback((originalIdx: number) => {
     setDeleteConfirmIdx(originalIdx);
@@ -196,17 +299,25 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
     }
   }, [deleteConfirmIdx, handleDeleteRow]);
 
+  const applyBulkDeleteSelected = useCallback(() => {
+    if (selectedOriginalIndices.size === 0) return;
+    setDeletedRows((prev) => new Set([...prev, ...selectedOriginalIndices]));
+    setSelectedRows(new Set());
+    setBulkDeleteConfirmOpen(false);
+  }, [selectedOriginalIndices]);
+
   // Handle bulk actions
   const handleBulkAction = useCallback((action: string) => {
     if (action === "delete") {
-      setDeletedRows((prev) => new Set([...prev, ...selectedRows]));
+      if (selectedOriginalIndices.size === 0) return;
+      setDeletedRows((prev) => new Set([...prev, ...selectedOriginalIndices]));
       setSelectedRows(new Set());
     } else {
       // For other actions, just show feedback (clear selection)
       alert(`Action "${action}" applied to ${selectedRows.size} items`);
       setSelectedRows(new Set());
     }
-  }, [selectedRows]);
+  }, [selectedRows.size, selectedOriginalIndices]);
 
   // Handle sort
   const handleSort = useCallback((colId: string) => {
@@ -232,9 +343,9 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
   }
 
   return (
-    <div className="h-full flex bg-[var(--color-base-surface-primary)] overflow-hidden">
-      {/* Main Content */}
-      <div className={`flex-1 overflow-hidden flex flex-col ${detailsRow ? "pr-0" : ""}`}>
+    <div className="flex h-full min-h-0 min-w-0 bg-[var(--color-base-surface-primary)] overflow-hidden">
+      {/* Main Content — min-h-0 обов’язково для flex-1, інакше таблиця роздуває main і з’являється скрол сторінки */}
+      <div className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${detailsRow ? "pr-0" : ""}`}>
         {/* Page Header */}
         <div className="flex-shrink-0 px-6 py-4">
             <h1 className="text-headline-1 text-[var(--color-base-primary)]">
@@ -282,6 +393,44 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
                   />
                 </div>
               )}
+
+              {(onEditInWizard || editInWizardUnavailable) && (
+                <button
+                  type="button"
+                  title={
+                    editInWizardUnavailable
+                      ? "Немає збереженої конфігурації візарду для цієї сторінки (створіть фічу через візард і апрувніть знову)"
+                      : "Редагувати структуру сторінки та таблиці у візарді"
+                  }
+                  disabled={editInWizardUnavailable || !onEditInWizard}
+                  onClick={() => onEditInWizard?.()}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                    editInWizardUnavailable || !onEditInWizard
+                      ? "border-[var(--color-base-stroke)] text-[var(--color-base-tertiary)] opacity-50 cursor-not-allowed"
+                      : "border-[var(--color-base-stroke)] text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)]"
+                  }`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0" aria-hidden>
+                    <path d="M11.333 2L14 4.667L5.333 13.333H2.667V10.667L11.333 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Edit in Wizard
+                </button>
+              )}
+
+              {onUploadCsvClick && (
+                <button
+                  type="button"
+                  onClick={onUploadCsvClick}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--color-brand-primary)] text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/10 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0" aria-hidden>
+                    <path d="M6.5 9.5L9.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <path d="M8.5 11.5L7 13C5.9 14.1 4.1 14.1 3 13C1.9 11.9 1.9 10.1 3 9L4.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <path d="M7.5 4.5L9 3C10.1 1.9 11.9 1.9 13 3C14.1 4.1 14.1 5.9 13 7L11.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  </svg>
+                  Upload CSV
+                </button>
+              )}
               
               {spec.toolbar.actions && spec.toolbar.actions.length > 0 && (
                 <div className="flex gap-2">
@@ -308,40 +457,98 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
 
         {/* Table */}
         {spec.table && columns.length > 0 && (
-          <div className="flex-1 flex flex-col overflow-hidden mx-6 mb-6 bg-[var(--color-base-surface-primary)] border border-[var(--color-base-stroke)] rounded-xl">
+          <div className="mx-6 mb-6 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)]">
               {/* Table Content - Scrollable */}
-              <div className="flex-1 overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" ref={tableScrollRef}>
+              <div className="min-h-0 flex-1 overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" ref={tableScrollRef}>
                 <table className="w-full">
                   <thead className="sticky top-0 z-30">
                     <tr className="border-b border-[var(--color-base-stroke)]">
-                      {/* Selection checkbox */}
+                      {/* Selection — фікс 32px, виїжджає зліва */}
                       {spec.table.selectable && (
-                        <th className="w-8 px-2 bg-[var(--color-base-surface-secondary)] h-8 border-r border-[var(--color-base-stroke)]">
-                          <input
-                            type="checkbox"
-                            className="rounded cursor-pointer"
-                            checked={selectedRows.size === tableData.length && tableData.length > 0}
-                            onChange={handleSelectAll}
-                          />
+                        <th
+                          className="sticky left-0 z-[25] bg-[var(--color-base-surface-secondary)] h-8"
+                          style={{
+                            width: SELECT_COL_PX,
+                            minWidth: SELECT_COL_PX,
+                            maxWidth: SELECT_COL_PX,
+                            padding: 0,
+                            overflow: "hidden",
+                            verticalAlign: "middle",
+                            borderRight: "1px solid var(--color-base-stroke)",
+                            boxShadow: hasHorizontalScroll
+                              ? "inset -1px 0 0 0 var(--color-base-stroke)"
+                              : undefined,
+                          }}
+                        >
+                          <div className="flex h-full w-full items-center justify-center" style={{ minWidth: SELECT_COL_PX }}>
+                            <Checkbox
+                              preventScrollOnFocus
+                              hideLabel
+                              checked={
+                                tableData.length > 0 &&
+                                tableData.every((_, idx) => selectedRows.has(idx))
+                              }
+                              onCheckedChange={handlePageSelectAllChange}
+                              aria-label="Select all rows"
+                              className="!gap-0 shrink-0"
+                            />
+                          </div>
                         </th>
                       )}
                       
                       {/* Column headers from spec */}
-                      {columns.map((col) => (
+                      {columns.map((col, colIdx) => (
                         <th
                           key={col.id}
-                          className={`px-2 h-8 text-left text-label-normal text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)] last:border-r-0 ${
-                            col.type === "actions" ? "sticky right-0 z-20" : ""
+                          className={`h-8 text-left text-label-normal text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)] last:border-r-0 ${
+                            spec.table?.selectable && colIdx === 0 ? "border-l-0" : ""
+                          } ${
+                            col.type === "actions"
+                              ? "pl-2 pr-[12px] sticky right-0 z-20"
+                              : "px-2"
                           }`}
                           style={{
-                            width: col.type === "actions" ? "auto" : col.label.toLowerCase() === "id" ? "96px" : col.width,
-                            minWidth: col.type === "actions" ? undefined : col.label.toLowerCase() === "title" ? "240px" : "128px",
-                            maxWidth: col.label.toLowerCase() === "id" ? "96px" : col.label.toLowerCase() === "title" ? "300px" : undefined,
+                            width:
+                              col.type === "actions"
+                                ? `${getActionsColumnOuterWidthPx(col)}px`
+                                : col.type === "live"
+                                  ? col.width || "80px"
+                                  : isDurationColumn(col)
+                                    ? undefined
+                                    : col.label.toLowerCase() === "id"
+                                      ? "96px"
+                                      : col.width,
+                            minWidth:
+                              col.type === "actions"
+                                ? `${getActionsColumnOuterWidthPx(col)}px`
+                                : col.type === "live"
+                                  ? col.width || "80px"
+                                  : isDurationColumn(col)
+                                    ? "max-content"
+                                    : col.label.toLowerCase() === "title" || isAudienceColumn(col)
+                                      ? TABLE_COL_WIDE_MIN_PX
+                                      : "128px",
+                            maxWidth:
+                              col.type === "actions"
+                                ? `${getActionsColumnOuterWidthPx(col)}px`
+                                : col.type === "live"
+                                  ? col.width || "80px"
+                                  : isDurationColumn(col)
+                                    ? undefined
+                                    : col.label.toLowerCase() === "id"
+                                      ? "96px"
+                                      : col.label.toLowerCase() === "title"
+                                        ? "300px"
+                                        : undefined,
+                            ...(isDurationColumn(col) ? { whiteSpace: "nowrap" as const } : {}),
                             ...(col.type === "actions" ? {
                               boxShadow: hasHorizontalScroll
                                 ? "inset 1px 0 0 0 var(--color-base-stroke), -4px 0 8px -4px rgba(0,0,0,0.1)"
                                 : "inset 1px 0 0 0 var(--color-base-stroke)",
                             } : {}),
+                            ...(spec.table?.selectable && colIdx === 0
+                              ? { borderLeftWidth: 0, borderLeftStyle: "none" as const, borderLeftColor: "transparent" }
+                              : {}),
                           }}
                         >
                           <span
@@ -384,36 +591,89 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
                               selectedRows.has(rowIdx) ? "bg-[var(--color-brand-primary)]/5" : ""
                             }`}
                           >
-                            {/* Selection checkbox */}
+                            {/* Selection — фікс 32px, той самий виїзд */}
                             {spec.table?.selectable && (
-                              <td className="w-8 px-2 h-12">
-                                <input
-                                  type="checkbox"
-                                  className="rounded cursor-pointer"
-                                  checked={selectedRows.has(rowIdx)}
-                                  onChange={() => handleSelectRow(rowIdx)}
-                                />
+                              <td
+                                className="sticky left-0 z-[15] h-12 bg-[var(--color-base-surface-primary)] group-hover:bg-[var(--color-base-surface-secondary)]"
+                                style={{
+                                  width: SELECT_COL_PX,
+                                  minWidth: SELECT_COL_PX,
+                                  maxWidth: SELECT_COL_PX,
+                                  padding: 0,
+                                  overflow: "hidden",
+                                  verticalAlign: "middle",
+                                  borderRight: "1px solid var(--color-base-stroke)",
+                                  boxShadow: hasHorizontalScroll
+                                    ? "inset -1px 0 0 0 var(--color-base-stroke)"
+                                    : undefined,
+                                }}
+                              >
+                                <div className="flex h-full w-full items-center justify-center" style={{ minWidth: SELECT_COL_PX }}>
+                                  <Checkbox
+                                    preventScrollOnFocus
+                                    hideLabel
+                                    checked={selectedRows.has(rowIdx)}
+                                    onCheckedChange={(checked) => setRowSelected(rowIdx, checked)}
+                                    aria-label={`Select row ${rowIdx + 1}`}
+                                    className="!gap-0 shrink-0"
+                                  />
+                                </div>
                               </td>
                             )}
                             
                             {/* Cell data from dummy data */}
-                            {columns.map((col) => (
+                            {columns.map((col, colIdx) => (
                               <td
                                 key={col.id}
-                                className={`px-2 h-12 text-paragraph-2 text-[var(--color-base-primary)] ${
+                                className={`h-12 text-paragraph-2 text-[var(--color-base-primary)] ${
+                                  spec.table?.selectable && colIdx === 0 ? "border-l-0" : ""
+                                } ${
                                   col.type === "actions"
-                                    ? "sticky right-0 z-20 bg-[var(--color-base-surface-primary)] group-hover:bg-[var(--color-base-surface-secondary)] transition-colors"
-                                    : ""
+                                    ? "pl-2 pr-[12px] sticky right-0 z-20 bg-[var(--color-base-surface-primary)] group-hover:bg-[var(--color-base-surface-secondary)] transition-colors"
+                                    : "px-2"
                                 }`}
                                 style={{
-                                  width: col.label.toLowerCase() === "id" ? "96px" : undefined,
-                                  minWidth: col.type === "actions" ? undefined : col.label.toLowerCase() === "title" ? "240px" : "128px",
-                                  maxWidth: col.label.toLowerCase() === "id" ? "96px" : col.label.toLowerCase() === "title" ? "300px" : undefined,
+                                  width:
+                                    col.type === "actions"
+                                      ? `${getActionsColumnOuterWidthPx(col)}px`
+                                      : col.type === "live"
+                                        ? col.width || "80px"
+                                        : isDurationColumn(col)
+                                          ? undefined
+                                          : col.label.toLowerCase() === "id"
+                                            ? "96px"
+                                            : undefined,
+                                  minWidth:
+                                    col.type === "actions"
+                                      ? `${getActionsColumnOuterWidthPx(col)}px`
+                                      : col.type === "live"
+                                        ? col.width || "80px"
+                                        : isDurationColumn(col)
+                                          ? "max-content"
+                                          : col.label.toLowerCase() === "title" || isAudienceColumn(col)
+                                            ? TABLE_COL_WIDE_MIN_PX
+                                            : "128px",
+                                  maxWidth:
+                                    col.type === "actions"
+                                      ? `${getActionsColumnOuterWidthPx(col)}px`
+                                      : col.type === "live"
+                                        ? col.width || "80px"
+                                        : isDurationColumn(col)
+                                          ? undefined
+                                          : col.label.toLowerCase() === "id"
+                                            ? "96px"
+                                            : col.label.toLowerCase() === "title"
+                                              ? "300px"
+                                              : undefined,
+                                  ...(isDurationColumn(col) ? { whiteSpace: "nowrap" as const } : {}),
                                   ...(col.type === "actions" ? {
                                     boxShadow: hasHorizontalScroll
                                       ? "inset 1px 0 0 0 var(--color-base-stroke), -4px 0 8px -4px rgba(0,0,0,0.1)"
                                       : "inset 1px 0 0 0 var(--color-base-stroke)",
                                   } : {}),
+                                  ...(spec.table?.selectable && colIdx === 0
+                                    ? { borderLeftWidth: 0, borderLeftStyle: "none" as const, borderLeftColor: "transparent" }
+                                    : {}),
                                 }}
                               >
                                 {col.type === "actions" ? (
@@ -428,8 +688,16 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
                                     showDelete={col.actions?.delete !== false}
                                   />
                                 ) : (
-                                  <div className="overflow-hidden text-ellipsis whitespace-nowrap">
-                                    {renderCell(col, row[col.id])}
+                                  <div
+                                    className={
+                                      col.type === "live"
+                                        ? "flex items-center justify-start py-0.5"
+                                        : col.type === "duration"
+                                          ? "text-left w-max max-w-none shrink-0"
+                                          : "overflow-hidden text-ellipsis whitespace-nowrap"
+                                    }
+                                  >
+                                    {renderCell(col, row)}
                                   </div>
                                 )}
                               </td>
@@ -447,10 +715,22 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
                 const startItem = (currentPage - 1) * itemsPerPage + 1;
                 const endItem = Math.min(currentPage * itemsPerPage, filteredData.length);
                 return (
-                  <div className="flex-shrink-0 h-12 px-4 flex items-center justify-between border-t border-[var(--color-base-stroke)] bg-[var(--color-base-surface-secondary)]">
-                    <span className="text-paragraph-2 text-[var(--color-base-secondary)]">
-                      {startItem} – {endItem} of {filteredData.length}
-                    </span>
+                  <div className="flex h-12 shrink-0 items-center justify-between border-t border-[var(--color-base-stroke)] bg-[var(--color-base-surface-secondary)] px-4">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="text-paragraph-2 text-[var(--color-base-secondary)] shrink-0">
+                        {startItem} – {endItem} of {filteredData.length}
+                      </span>
+                      {spec.table.selectable && selectedRows.size > 0 && (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setBulkDeleteConfirmOpen(true)}
+                          className="shrink-0 border-[var(--color-status-error)]/50 text-[var(--color-status-error)] hover:bg-[var(--color-status-error)]/5"
+                        >
+                          Delete Selected ({selectedRows.size})
+                        </Button>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3">
                       <div className="flex items-center gap-2">
                         <span className="text-paragraph-2 text-[var(--color-base-secondary)]">The page you on</span>
@@ -490,7 +770,7 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
 
       {/* Details Drawer */}
       {detailsRow && (
-        <div className="w-[360px] flex-shrink-0 bg-[var(--color-base-surface-primary)] border-l border-[var(--color-base-stroke)] flex flex-col">
+        <div className="flex h-full min-h-0 w-[360px] shrink-0 flex-col overflow-hidden border-l border-[var(--color-base-stroke)] bg-[var(--color-base-surface-primary)]">
           {/* Drawer Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-base-stroke)]">
             <h3 className="text-headline-3 text-[var(--color-base-primary)]">
@@ -507,7 +787,7 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
           </div>
 
           {/* Drawer Content */}
-          <div className="flex-1 overflow-auto p-4">
+          <div className="min-h-0 flex-1 overflow-auto p-4">
             <div className="space-y-4">
               {spec?.table?.columns
                 .filter((col) => col.type !== "actions")
@@ -556,6 +836,17 @@ export function PreviewRenderer({ spec, errors = [], onOpenWizard, onCreateClick
         onConfirm={confirmDeleteRow}
         title="Delete item"
         description="Are you sure you want to delete this item? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+        size="lg"
+      />
+      <ConfirmModal
+        isOpen={bulkDeleteConfirmOpen}
+        onClose={() => setBulkDeleteConfirmOpen(false)}
+        onConfirm={applyBulkDeleteSelected}
+        title="Delete selected rows"
+        description={`Delete ${selectedRows.size} selected item(s)? This action cannot be undone.`}
         confirmText="Delete"
         cancelText="Cancel"
         variant="danger"
@@ -985,11 +1276,46 @@ function CopyButton({ value }: { value: string }) {
 }
 
 // Cell renderer based on column type
-function renderCell(col: TableColumn, value: string | undefined): React.ReactNode {
+function renderCell(col: TableColumn, row: Record<string, string>): React.ReactNode {
+  if (col.type === "live") {
+    const v = row[col.id];
+    const initialOn = v !== "false" && v !== "0" && v !== "off" && v !== "no";
+    return <Toggle size="sm" defaultChecked={initialOn} aria-label={`${col.label} toggle`} />;
+  }
+
+  if (col.type === "duration" && col.durationStartFieldId && col.durationEndFieldId) {
+    const startRaw = row[col.durationStartFieldId];
+    const endRaw = row[col.durationEndFieldId];
+    const s = formatDurationParts(startRaw);
+    const e = formatDurationParts(endRaw);
+    if (!s && !e) return "—";
+    const dateLine = `${s?.date ?? "—"} - ${e?.date ?? "—"}`;
+    return (
+      <div className="flex items-center gap-2 shrink-0 whitespace-nowrap">
+        <span
+          className="size-2 rounded-full bg-[var(--color-status-success)] shrink-0"
+          aria-hidden
+        />
+        <span className="text-paragraph-2 tabular-nums leading-tight whitespace-nowrap">{dateLine}</span>
+      </div>
+    );
+  }
+
+  const value = row[col.id];
   if (!value && col.type !== "actions") return "—";
 
   const cellContent = (() => {
     switch (col.type) {
+      case "date": {
+        const parts = formatDurationParts(value);
+        if (!parts) return "—";
+        return (
+          <span className="tabular-nums whitespace-nowrap">
+            {parts.date}{parts.time ? ` ${parts.time}` : ""}
+          </span>
+        );
+      }
+
       case "status":
         const statusColors: Record<string, string> = {
           Active: "bg-[var(--color-status-success)]/10 text-[var(--color-status-success)]",

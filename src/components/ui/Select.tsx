@@ -13,6 +13,11 @@ import {
   useContext,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  clampHorizontalLeft,
+  computeVerticalDropdownPosition,
+  DROPDOWN_GAP,
+} from "@/lib/dropdownPlacement";
 import { SearchIcon, CheckIcon, CloseIcon, ChevronDownIcon } from "@/components/icons";
 import { Button } from "./Button";
 
@@ -135,28 +140,25 @@ export const SelectMenu = forwardRef<HTMLDivElement, SelectMenuProps>(
       setMounted(true);
     }, []);
 
-    // Calculate position synchronously
+    // Calculate position synchronously (після рендеру використовуємо реальну висоту меню)
     const calculatePosition = useCallback(() => {
       if (!triggerRef.current) return;
 
       const rect = triggerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      const menuHeight = Math.min(maxHeight, 400);
+      const measured = menuRef.current?.getBoundingClientRect().height ?? 0;
+      const fallbackH = Math.min(maxHeight, 400);
+      const menuHeight = measured > 8 ? measured : fallbackH;
       const menuWidth = Math.max(rect.width, 320);
 
-      // Decide whether to show above or below
-      const showAbove = spaceBelow < menuHeight && spaceAbove > spaceBelow;
-
-      // Prevent horizontal overflow — align to right edge of trigger if it would overflow
-      let left = rect.left;
-      const rightOverflow = left + menuWidth - window.innerWidth + 16;
-      if (rightOverflow > 0) {
-        left = Math.max(8, rect.right - menuWidth);
-      }
+      const { top } = computeVerticalDropdownPosition({
+        triggerRect: rect,
+        panelHeight: menuHeight,
+        gap: DROPDOWN_GAP,
+      });
+      const left = clampHorizontalLeft(rect.left, menuWidth);
 
       setCoords({
-        top: showAbove ? rect.top - menuHeight - 4 : rect.bottom + 4,
+        top,
         left,
         width: rect.width,
       });
@@ -393,15 +395,25 @@ export const Select = forwardRef<HTMLDivElement, SelectProps>(
     // For multiselect with actions, we use pending value
     const workingValues = showActions && multiple ? pendingValue : selectedValues;
 
+    // Merge any selected values that are missing from the declared options so they remain visible
+    const effectiveOptions = (() => {
+      const existing = new Set(options.map(o => o.value));
+      const extra: SelectOption[] = [];
+      for (const v of selectedValues) {
+        if (v && !existing.has(v)) extra.push({ value: v, label: v });
+      }
+      return extra.length ? [...options, ...extra] : options;
+    })();
+
     // Filter options based on search
-    const filteredOptions = options.filter((option) =>
+    const filteredOptions = effectiveOptions.filter((option) =>
       option.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
       option.description?.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
     // Get selected options
     const getSelectedOptions = () => {
-      return options.filter((opt) => selectedValues.includes(opt.value));
+      return effectiveOptions.filter((opt) => selectedValues.includes(opt.value));
     };
 
     // Display value

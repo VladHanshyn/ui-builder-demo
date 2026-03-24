@@ -2,14 +2,34 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { WizardModal, type WizardIntent, type NavSection } from "@/ui-generator";
-import { getNavigation, saveNavigation, addPageToSection, addNewSection, DEFAULT_SECTIONS } from "@/ui-generator/navigationTree";
+import { ConfirmModal } from "@/components/ui/Modal";
+import { type WizardIntent, type NavSection } from "@/ui-generator";
+import { getNavigation, saveNavigation, addPageToSection, addNewSection, updatePageLabel, DEFAULT_SECTIONS } from "@/ui-generator/navigationTree";
 import { titleToFeatureId } from "@/ui-generator/wizardTypes";
 import { PreviewRenderer } from "@/features/agent/components/PreviewRenderer";
 import { CreatePageRenderer } from "@/features/agent/components/CreatePageRenderer";
 import { generateDummyData } from "@/features/agent/agentMock";
-import type { UISpec, TableColumn, CreatePageSpec, SectionSpec } from "@/features/agent/types";
+import type {
+  UISpec,
+  TableColumn,
+  CreatePageSpec,
+  SectionSpec,
+  AccordionContentBlock,
+  PropertyField,
+  PropertyFieldType,
+  EditableTableSpec,
+} from "@/features/agent/types";
 import type { NavigationConfig } from "@/ui-generator";
+
+/** Phoenix demo persistence (approved pages, specs, queue) — cleared by debug reset */
+const PHOENIX_CLEARABLE_STORAGE_KEYS = [
+  "phoenix-page-specs",
+  "phoenix-create-page-specs",
+  "phoenix-saved-table-rows",
+  "phoenix-feature-requests",
+  "phoenix-pending-wizard-intent",
+  "phoenix-page-wizard-intents",
+] as const;
 
 // ============================================
 // CSV UTILITIES
@@ -71,6 +91,32 @@ interface TargetField {
   storageKeys: string[];
 }
 
+/**
+ * Зводить назву колонки CSV / лейбл візарда / field id до одного ключа:
+ * ігнорує регістр, пробіли, _, - та зводить % до «percent» (Native % ≈ Native_Percent, Progress_From ≈ % Progress from).
+ */
+function fuzzyFieldKey(raw: string): string {
+  let x = raw.toLowerCase().trim().replace(/%/g, "percent");
+  x = x.replace(/[^a-z0-9]+/g, "");
+  x = x.replace(/^percent+/, "");
+  x = x.replace(/percent+$/, "");
+  return x;
+}
+
+/**
+ * Додаткове порівняння після fuzzyFieldKey: «CC %» дає суфікс ...percent, який зрізається → «cc»,
+ * тоді як CSV «CC_Percent» лишається «ccpercent» — без цього Seed Price / відсотки не мапляться.
+ */
+function fuzzyKeysMatch(a: string, b: string): boolean {
+  const fa = fuzzyFieldKey(a);
+  const fb = fuzzyFieldKey(b);
+  if (!fa || !fb) return false;
+  if (fa === fb) return true;
+  if (fa + "percent" === fb || fb + "percent" === fa) return true;
+  if ("percent" + fa === fb || "percent" + fb === fa) return true;
+  return false;
+}
+
 function collectTargetFields(spec: UISpec, createSpec: CreatePageSpec): TargetField[] {
   const targets: TargetField[] = [];
   const seen = new Set<string>();
@@ -90,16 +136,37 @@ function collectTargetFields(spec: UISpec, createSpec: CreatePageSpec): TargetFi
   if (spec.table?.columns) {
     for (const col of spec.table.columns) {
       if (col.id === "actions") continue;
-      add(col.label, col.id, [col.id]);
+      if (col.type === "duration" && col.durationStartFieldId && col.durationEndFieldId) {
+        add(col.label, col.id, [col.id, col.durationStartFieldId, col.durationEndFieldId]);
+      } else {
+        add(col.label, col.id, [col.id]);
+      }
     }
   }
 
   // Create page sections
+  const walkAccordionBlocks = (blocks: AccordionContentBlock[], accordionId: string, pathPrefix: string) => {
+    for (const b of blocks) {
+      if (b.type === "field-row") {
+        for (const f of b.fields) {
+          if (f.type === "section-heading" || f.type === "action-button") continue;
+          add(f.label, f.id, [`accordion-${accordionId}-${f.id}`, f.id]);
+        }
+      } else if (b.type === "child-section") {
+        walkSections([b.section], pathPrefix);
+      } else if (b.type === "tabbed") {
+        for (const t of b.tabs) walkAccordionBlocks(t.blocks, accordionId, pathPrefix);
+      }
+    }
+  };
+
   const walkSections = (sections: SectionSpec[], prefix: string) => {
     for (const sec of sections) {
       switch (sec.type) {
         case "accordion-list":
-          if (sec.itemTemplate.fields) {
+          if (sec.itemTemplate.blocks?.length) {
+            walkAccordionBlocks(sec.itemTemplate.blocks, sec.id, prefix);
+          } else if (sec.itemTemplate.fields) {
             for (const f of sec.itemTemplate.fields) {
               add(f.label, f.id, [`accordion-${sec.id}-${f.id}`, f.id]);
             }
@@ -108,7 +175,7 @@ function collectTargetFields(spec: UISpec, createSpec: CreatePageSpec): TargetFi
           break;
         case "form":
           for (const f of sec.fields) {
-            add(f.label, f.id, [f.id]);
+            add(f.label, f.id, [f.id, `section-${sec.id}-${f.id}`]);
           }
           break;
         case "simple-list":
@@ -118,7 +185,7 @@ function collectTargetFields(spec: UISpec, createSpec: CreatePageSpec): TargetFi
           break;
         case "editable-table":
           for (const col of sec.columns) {
-            add(col.label, col.id, [col.id]);
+            add(col.label, col.id, [col.id, `${sec.id}-${col.id}`]);
           }
           break;
       }
@@ -137,6 +204,184 @@ function collectTargetFields(spec: UISpec, createSpec: CreatePageSpec): TargetFi
   }
 
   return targets;
+}
+
+/**
+ * Resolve a table cell / field value from Save & Close formData (keys like prop-section-fieldId, accordion-*, etc.)
+ */
+function pickFieldValueFromRowData(
+  rowData: Record<string, string>,
+  fieldId: string,
+  targets: TargetField[],
+): string {
+  const colId = fieldId;
+  const lowerCol = colId.toLowerCase();
+
+  const nonEmpty = (v: string | undefined) => (v !== undefined && v !== "" ? v : "");
+
+  const keyVariants = new Set<string>([colId]);
+  if (colId.length > 0) {
+    keyVariants.add(colId.charAt(0).toUpperCase() + colId.slice(1));
+    keyVariants.add(colId.charAt(0).toLowerCase() + colId.slice(1));
+  }
+  for (const key of keyVariants) {
+    const val = nonEmpty(rowData[key]);
+    if (val) return val;
+  }
+
+  const target = targets.find((t) => t.id === colId);
+  if (target) {
+    for (const key of target.storageKeys) {
+      const found = nonEmpty(rowData[key]);
+      if (found) return found;
+    }
+  }
+
+  for (const t of targets) {
+    if (t.storageKeys.includes(colId)) {
+      for (const key of t.storageKeys) {
+        const found = nonEmpty(rowData[key]);
+        if (found) return found;
+      }
+    }
+  }
+
+  for (const [k, val] of Object.entries(rowData)) {
+    if (!nonEmpty(val)) continue;
+    const kl = k.toLowerCase();
+    if (kl === lowerCol) return val;
+    if (kl.endsWith(`-${lowerCol}`)) return val;
+  }
+
+  const wantFk = fuzzyFieldKey(colId);
+  if (wantFk) {
+    for (const [k, val] of Object.entries(rowData)) {
+      if (nonEmpty(val) && fuzzyKeysMatch(k, colId)) return val;
+    }
+  }
+
+  return "";
+}
+
+// --- Wizard → CreatePageSpec (accordion blocks: sections, buttons, tables, tabs) ---
+
+function mapWizardRawToPropertyType(rawType: string, forceReadOnly: boolean): PropertyFieldType {
+  if (forceReadOnly) return "readonly";
+  const m: Record<string, PropertyFieldType> = {
+    input: "input",
+    textarea: "textarea",
+    select: "select",
+    "multi-select": "multi-select",
+    "date-time": "date-time",
+    number: "number",
+    coins: "coins",
+    diamonds: "diamonds",
+    percents: "percents",
+    url: "url",
+    toggle: "toggle",
+    readonly: "readonly",
+  };
+  return m[rawType] ?? "input";
+}
+
+function wizardFieldToPropertyField(f: Record<string, unknown>): PropertyField {
+  const rawType = String(f.type ?? "input");
+  const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
+  const type = mapWizardRawToPropertyType(rawType === "readonly" ? "input" : rawType, isReadOnly);
+  return {
+    id: String(f.id ?? ""),
+    label: String(f.label ?? ""),
+    type,
+    required: Boolean(f.required),
+    placeholder: f.placeholder ? String(f.placeholder) : undefined,
+    autoGenerated: Boolean(f.autoGenerated),
+    copyable: Boolean(f.copyable),
+    readOnly: isReadOnly || undefined,
+    rowId: f.rowId ? String(f.rowId) : undefined,
+  };
+}
+
+function groupPropertyFieldsIntoRows(fields: PropertyField[]): PropertyField[][] {
+  const rows: PropertyField[][] = [];
+  const seen = new Set<string>();
+  for (const field of fields) {
+    const rid = field.rowId ?? field.id;
+    if (seen.has(rid)) continue;
+    seen.add(rid);
+    rows.push(fields.filter(fi => (fi.rowId ?? fi.id) === rid));
+  }
+  return rows;
+}
+
+function flushFieldBufferToBlocks(buf: PropertyField[]): AccordionContentBlock[] {
+  if (buf.length === 0) return [];
+  return groupPropertyFieldsIntoRows(buf).map(fields => ({ type: "field-row" as const, fields }));
+}
+
+function wizardTableToEditableSection(tableItem: Record<string, unknown>, sectionId: string): EditableTableSpec {
+  const id = String(tableItem.id ?? "table");
+  const cols = (tableItem.columns as Array<Record<string, unknown>>) ?? [];
+  const allowedCol = new Set(["input", "number", "select", "readonly", "coins", "diamonds", "custom-picker"]);
+  return {
+    type: "editable-table",
+    id: `${sectionId}-nested-${id}`,
+    title: "",
+    addLabel: "+ Add Row",
+    columns: cols.map((col: Record<string, unknown>) => {
+      const ct = String(col.type ?? "input");
+      const type = (allowedCol.has(ct) ? ct : "input") as import("@/features/agent/types").EditableColumnType;
+      return {
+        id: String(col.id ?? ""),
+        label: String(col.label ?? ""),
+        type,
+      };
+    }),
+    hasDragHandle: true,
+  };
+}
+
+function wizardItemsToAccordionBlocks(rawItems: Array<Record<string, unknown>>, sectionId: string): AccordionContentBlock[] {
+  const blocks: AccordionContentBlock[] = [];
+  let fieldBuf: PropertyField[] = [];
+
+  const flush = () => {
+    blocks.push(...flushFieldBufferToBlocks(fieldBuf));
+    fieldBuf = [];
+  };
+
+  for (const it of rawItems) {
+    const kind = String(it.kind ?? "field");
+    if (kind === "field" || !it.kind) {
+      fieldBuf.push(wizardFieldToPropertyField(it));
+      continue;
+    }
+    flush();
+    if (kind === "section") {
+      blocks.push({
+        type: "field-row",
+        fields: [{ id: String(it.id ?? "section"), type: "section-heading", label: String(it.title ?? "") }],
+      });
+    } else if (kind === "action") {
+      blocks.push({
+        type: "field-row",
+        fields: [{ id: String(it.id ?? "action"), type: "action-button", label: String(it.label ?? "Button") }],
+      });
+    } else if (kind === "table") {
+      blocks.push({ type: "child-section", section: wizardTableToEditableSection(it, sectionId) });
+    } else if (kind === "tabs") {
+      const tabDefs = (it.tabs as Array<Record<string, unknown>>) ?? [];
+      blocks.push({
+        type: "tabbed",
+        tabs: tabDefs.map(tab => ({
+          id: String(tab.id ?? ""),
+          label: String(tab.label ?? "Tab"),
+          blocks: wizardItemsToAccordionBlocks((tab.items as Array<Record<string, unknown>>) ?? [], `${sectionId}-${String(tab.id)}`),
+        })),
+      });
+    }
+  }
+  flush();
+  return blocks;
 }
 
 function autoMapHeaders(csvHeaders: string[], targets: TargetField[]): Map<number, TargetField[]> {
@@ -166,6 +411,19 @@ function autoMapHeaders(csvHeaders: string[], targets: TargetField[]): Map<numbe
     }
   }
 
+  // Pass 2.5: fuzzy key — CSV Snake_Case vs візард ("Price Point", "% Progress from", kebab-case id)
+  for (let i = 0; i < csvHeaders.length; i++) {
+    const fk = fuzzyFieldKey(csvHeaders[i]);
+    if (!fk) continue;
+    for (const t of targets) {
+      if (matched.has(t)) continue;
+      if (fuzzyKeysMatch(csvHeaders[i], t.label) || fuzzyKeysMatch(csvHeaders[i], t.id)) {
+        mapping.set(i, [...(mapping.get(i) || []), t]);
+        matched.add(t);
+      }
+    }
+  }
+
   // Pass 3: contains match
   for (let i = 0; i < normHeaders.length; i++) {
     for (const t of targets) {
@@ -186,6 +444,7 @@ function buildRowsFromCsv(
   mapping: Map<number, TargetField[]>,
 ): Record<string, string>[] {
   return csvRows.map(row => {
+    const now = new Date().toISOString();
     const obj: Record<string, string> = { _createdAt: String(Date.now() + Math.random() * 1000) };
     for (const [csvIdx, targets] of mapping.entries()) {
       const val = row[csvIdx] ?? "";
@@ -195,6 +454,8 @@ function buildRowsFromCsv(
         }
       }
     }
+    if (!obj["created-at"]) obj["created-at"] = now;
+    if (!obj["updated-at"]) obj["updated-at"] = now;
     return obj;
   });
 }
@@ -208,6 +469,8 @@ interface FeatureRequest {
   parentSectionLabel: string;
   spec: UISpec;
   createPageSpec: CreatePageSpec;
+  /** Повний стан візарду для кнопки «Edit in Wizard» */
+  wizardIntent?: WizardIntent;
   createdAt: string;
   columnCount: number;
   actionCount: number;
@@ -624,33 +887,100 @@ export default function PhoenixPage() {
     gifts: true,
   });
   const [activePage, setActivePage] = useState<string | null>(null);
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const [pageSpecs, setPageSpecs] = useState<Record<string, UISpec>>({});
   const [createPageSpecs, setCreatePageSpecs] = useState<Record<string, CreatePageSpec>>({});
   const [featureRequests, setFeatureRequests] = useState<FeatureRequest[]>([]);
   const [previewingRequest, setPreviewingRequest] = useState<FeatureRequest | null>(null);
   const [activeCreatePage, setActiveCreatePage] = useState<string | null>(null);
   const [savedTableRows, setSavedTableRows] = useState<Record<string, Record<string, string>[]>>({});
+  /** Збережений WizardIntent після апруву — для «Edit in Wizard» на сторінці */
+  const [pageWizardIntents, setPageWizardIntents] = useState<Record<string, WizardIntent>>({});
   /** When set, create form is in edit mode for this row; Save & Close updates instead of appending */
   const [editingRow, setEditingRow] = useState<{ pageId: string; rowIndex: number } | null>(null);
+  const [debugResetOpen, setDebugResetOpen] = useState(false);
 
   const csvInputRef = useRef<HTMLInputElement>(null);
 
-  const handleCsvImport = useCallback((csvText: string) => {
-    if (!previewingRequest) return;
+  const handleDebugResetConfirm = useCallback(() => {
+    const freshNav = JSON.parse(JSON.stringify({ sections: DEFAULT_SECTIONS })) as { sections: NavSection[] };
+    saveNavigation(freshNav);
+    for (const k of PHOENIX_CLEARABLE_STORAGE_KEYS) {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* ignore */
+      }
+    }
+    setNavState(freshNav);
+    setPageSpecs({});
+    setCreatePageSpecs({});
+    setSavedTableRows({});
+    setPageWizardIntents({});
+    setFeatureRequests([]);
+    setActivePage(null);
+    setPreviewingRequest(null);
+    setActiveCreatePage(null);
+    setEditingRow(null);
+    setExpandedMenus({ gifts: true });
+    setDebugResetOpen(false);
+  }, []);
+
+  type CsvImportContext = {
+    spec: UISpec;
+    createPageSpec: CreatePageSpec;
+    storagePageId: string;
+  };
+
+  const handleCsvImport = useCallback((csvText: string, ctx: CsvImportContext) => {
     const { headers, rows } = parseCsv(csvText);
     if (headers.length === 0 || rows.length === 0) return;
 
-    const targets = collectTargetFields(previewingRequest.spec, previewingRequest.createPageSpec);
+    const targets = collectTargetFields(ctx.spec, ctx.createPageSpec);
     const mapping = autoMapHeaders(headers, targets);
     const newRows = buildRowsFromCsv(rows, mapping);
 
-    const pageId = `preview-${previewingRequest.pageId}`;
     setSavedTableRows(prev => ({
       ...prev,
-      [pageId]: [...(prev[pageId] || []), ...newRows],
+      [ctx.storagePageId]: [...(prev[ctx.storagePageId] || []), ...newRows],
     }));
-  }, [previewingRequest]);
+  }, []);
+
+  const handleCsvFileChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== "string") return;
+        if (previewingRequest) {
+          handleCsvImport(reader.result, {
+            spec: previewingRequest.spec,
+            createPageSpec: previewingRequest.createPageSpec,
+            storagePageId: `preview-${previewingRequest.pageId}`,
+          });
+        } else if (activePage && pageSpecs[activePage] && createPageSpecs[activePage]) {
+          handleCsvImport(reader.result, {
+            spec: pageSpecs[activePage],
+            createPageSpec: createPageSpecs[activePage],
+            storagePageId: activePage,
+          });
+        } else {
+          alert("Немає контексту для імпорту CSV (відкрийте прев’ю або сторінку з таблицею та create page).");
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    },
+    [previewingRequest, activePage, pageSpecs, createPageSpecs, handleCsvImport],
+  );
+
+  useEffect(() => {
+    setPreviewingRequest(prev => {
+      if (!prev) return prev;
+      const fresh = featureRequests.find(r => r.id === prev.id);
+      return fresh ?? prev;
+    });
+  }, [featureRequests]);
 
   const hydrated = useRef(false);
   const skipFirstWrite = useRef({
@@ -658,6 +988,7 @@ export default function PhoenixPage() {
     pageSpecs: true,
     createPageSpecs: true,
     savedTableRows: true,
+    pageWizardIntents: true,
   });
 
   useEffect(() => {
@@ -675,6 +1006,8 @@ export default function PhoenixPage() {
       if (storedCreateSpecs) setCreatePageSpecs(JSON.parse(storedCreateSpecs));
       const storedRows = localStorage.getItem("phoenix-saved-table-rows");
       if (storedRows) setSavedTableRows(JSON.parse(storedRows));
+      const storedWizardIntents = localStorage.getItem("phoenix-page-wizard-intents");
+      if (storedWizardIntents) setPageWizardIntents(JSON.parse(storedWizardIntents));
     } catch {}
 
     try {
@@ -682,41 +1015,88 @@ export default function PhoenixPage() {
       console.log("[Phoenix] Checking pending intent:", pendingRaw ? "FOUND" : "NOT FOUND");
       if (pendingRaw) {
         localStorage.removeItem("phoenix-pending-wizard-intent");
-        const intent = JSON.parse(pendingRaw) as WizardIntent;
-        console.log("[Phoenix] Parsed intent:", {
-          title: intent.title,
-          tableColumns: intent.selectedFields?.tableColumns?.length,
-          columns: intent.selectedFields?.tableColumns?.map(c => c.label),
-          actions: Object.entries(intent.rowActions || {}).filter(([, v]) => v).map(([k]) => k),
-          sections: intent.createPageConfig?.sections?.length,
-          propertiesFields: intent.createPageConfig?.propertiesPanel?.sections?.flatMap((s: { fields: Array<{ label: string }> }) => s.fields.map(f => f.label)),
-        });
-        const nav = getNavigation();
-        const pageId = titleToFeatureId(intent.title);
-        const spec = buildSpecFromIntent(intent);
-        const createSpec = buildCreatePageSpec(intent);
-        const actionCount = Object.values(intent.rowActions).filter(Boolean).length;
-        const parentLabel = intent.navigation.isNewSection
-          ? intent.navigation.newSectionName
-          : nav.sections.find((s: NavSection) => s.id === intent.navigation.parentSection)?.label || intent.navigation.parentSection || "";
+        const parsed = JSON.parse(pendingRaw) as
+          | WizardIntent
+          | { intent: WizardIntent; replaceRequestId?: string; editApprovedPageId?: string };
+        const intent = parsed && typeof parsed === "object" && "intent" in parsed
+          ? (parsed as { intent: WizardIntent }).intent
+          : (parsed as WizardIntent);
+        const replaceRequestId = parsed && typeof parsed === "object" && "intent" in parsed && "replaceRequestId" in parsed
+          ? String((parsed as { replaceRequestId?: string }).replaceRequestId || "")
+          : "";
+        const editApprovedPageId = parsed && typeof parsed === "object" && "intent" in parsed && "editApprovedPageId" in parsed
+          ? String((parsed as { editApprovedPageId?: string }).editApprovedPageId || "")
+          : "";
 
-        const request: FeatureRequest = {
-          id: `fr-${Date.now()}`,
-          pageId,
-          title: intent.title,
-          description: intent.description,
-          navigation: intent.navigation,
-          parentSectionLabel: parentLabel,
-          spec,
-          createPageSpec: createSpec!,
-          createdAt: new Date().toISOString(),
-          columnCount: intent.selectedFields.tableColumns.length,
-          actionCount,
-        };
+        if (editApprovedPageId && intent) {
+          const spec = buildSpecFromIntent(intent);
+          const createSpec = buildCreatePageSpec(intent);
+          setPageSpecs(prev => ({ ...prev, [editApprovedPageId]: spec }));
+          if (createSpec) {
+            setCreatePageSpecs(prev => ({ ...prev, [editApprovedPageId]: createSpec }));
+          }
+          setPageWizardIntents(prev => ({ ...prev, [editApprovedPageId]: intent }));
+          setNavState(prev => {
+            const next = updatePageLabel(prev, editApprovedPageId, intent.title);
+            saveNavigation(next);
+            return next;
+          });
+          setActivePage(editApprovedPageId);
+          setPreviewingRequest(null);
+        } else {
+          console.log("[Phoenix] Parsed intent:", {
+            title: intent.title,
+            replaceRequestId: replaceRequestId || undefined,
+            tableColumns: intent.selectedFields?.tableColumns?.length,
+            columns: intent.selectedFields?.tableColumns?.map(c => c.label),
+            actions: Object.entries(intent.rowActions || {}).filter(([, v]) => v).map(([k]) => k),
+            sections: intent.createPageConfig?.sections?.length,
+            propertiesFields: intent.createPageConfig?.propertiesPanel?.sections?.flatMap((s: { fields: Array<{ label: string }> }) => s.fields.map(f => f.label)),
+          });
+          const nav = getNavigation();
+          const pageId = titleToFeatureId(intent.title);
+          const spec = buildSpecFromIntent(intent);
+          const createSpec = buildCreatePageSpec(intent);
+          const actionCount = Object.values(intent.rowActions).filter(Boolean).length;
+          const parentLabel = intent.navigation.isNewSection
+            ? intent.navigation.newSectionName
+            : nav.sections.find((s: NavSection) => s.id === intent.navigation.parentSection)?.label || intent.navigation.parentSection || "";
 
-        const updatedRequests = [request, ...loadedRequests];
-        setFeatureRequests(updatedRequests);
-        localStorage.setItem("phoenix-feature-requests", JSON.stringify(updatedRequests));
+          const baseRequest: Omit<FeatureRequest, "id" | "createdAt"> = {
+            pageId,
+            title: intent.title,
+            description: intent.description,
+            navigation: intent.navigation,
+            parentSectionLabel: parentLabel,
+            spec,
+            createPageSpec: createSpec!,
+            wizardIntent: intent,
+            columnCount: intent.selectedFields.tableColumns.length,
+            actionCount,
+          };
+
+          let updatedRequests: FeatureRequest[];
+          if (replaceRequestId) {
+            const idx = loadedRequests.findIndex(r => r.id === replaceRequestId);
+            if (idx >= 0) {
+              const prev = loadedRequests[idx];
+              updatedRequests = [...loadedRequests];
+              updatedRequests[idx] = {
+                ...prev,
+                ...baseRequest,
+                id: prev.id,
+                createdAt: prev.createdAt,
+              };
+            } else {
+              updatedRequests = [{ id: `fr-${Date.now()}`, createdAt: new Date().toISOString(), ...baseRequest }, ...loadedRequests];
+            }
+          } else {
+            updatedRequests = [{ id: `fr-${Date.now()}`, createdAt: new Date().toISOString(), ...baseRequest }, ...loadedRequests];
+          }
+
+          setFeatureRequests(updatedRequests);
+          localStorage.setItem("phoenix-feature-requests", JSON.stringify(updatedRequests));
+        }
       }
     } catch {}
 
@@ -760,6 +1140,30 @@ export default function PhoenixPage() {
     localStorage.setItem("phoenix-create-page-specs", JSON.stringify(createPageSpecs));
   }, [createPageSpecs]);
 
+  useEffect(() => {
+    if (!hydrated.current) return;
+    if (skipFirstWrite.current.pageWizardIntents) {
+      skipFirstWrite.current.pageWizardIntents = false;
+      return;
+    }
+    localStorage.setItem("phoenix-page-wizard-intents", JSON.stringify(pageWizardIntents));
+  }, [pageWizardIntents]);
+
+  const openApprovedPageInWizard = useCallback(() => {
+    if (!activePage) return;
+    const intent = pageWizardIntents[activePage];
+    if (!intent) return;
+    try {
+      sessionStorage.setItem(
+        "phoenix-wizard-bootstrap",
+        JSON.stringify({ intent, editApprovedPageId: activePage }),
+      );
+    } catch {
+      return;
+    }
+    window.location.href = "/wizard";
+  }, [activePage, pageWizardIntents]);
+
   const toggleMenu = (key: string) => {
     setExpandedMenus(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -772,18 +1176,34 @@ export default function PhoenixPage() {
         string: "text", number: "number", date: "date",
         enum: "status", boolean: "text", user: "text",
         media: "text", id: "text",
+        duration: "duration", live: "live",
       };
       return mapping[dataType] || "text";
     };
 
-    const columns: TableColumn[] = intent.selectedFields.tableColumns.map((field) => ({
-      id: field.id,
-      label: field.label,
-      type: dataTypeToColumnType(field.dataType),
-      sortable: ["date", "number", "string", "user"].includes(field.dataType),
-      ...(field.dataType === "id" ? { width: "80px" } : {}),
-      ...(field.copyable ? { copyable: true } : {}),
-    }));
+    const columns: TableColumn[] = intent.selectedFields.tableColumns.map((field) => {
+      const base: TableColumn = {
+        id: field.id,
+        label: field.label,
+        type: dataTypeToColumnType(field.dataType),
+        sortable: ["date", "number", "string", "user"].includes(field.dataType),
+        ...(field.dataType === "id" ? { width: "80px" } : {}),
+        ...(field.copyable ? { copyable: true } : {}),
+      };
+      if (field.dataType === "duration" && field.durationStartFieldId && field.durationEndFieldId) {
+        return {
+          ...base,
+          type: "duration",
+          durationStartFieldId: field.durationStartFieldId,
+          durationEndFieldId: field.durationEndFieldId,
+          sortable: false,
+        };
+      }
+      if (field.dataType === "live") {
+        return { ...base, type: "live", sortable: false, width: "80px" };
+      }
+      return base;
+    });
 
     const hasAnyRowAction = intent.rowActions.viewDetails || intent.rowActions.edit ||
       intent.rowActions.duplicate || intent.rowActions.approve ||
@@ -823,7 +1243,10 @@ export default function PhoenixPage() {
       table: {
         columns,
         pagination: true,
-        selectable: intent.bulkActions.approveSelected || intent.bulkActions.rejectSelected,
+        selectable:
+          (intent.bulkActions.multiselect ?? false) ||
+          intent.bulkActions.approveSelected ||
+          intent.bulkActions.rejectSelected,
       },
     };
   }, []);
@@ -844,11 +1267,11 @@ export default function PhoenixPage() {
               fields: (c.fields as Array<Record<string, unknown>> || []).map((f: Record<string, unknown>) => {
                 const rawType = String(f.type || "input");
                 const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
-                const type = rawType === "readonly" ? "input" : rawType;
+                const type = (isReadOnly ? "input" : rawType) as import("@/features/agent/types").FormFieldType;
                 return {
                   id: String(f.id || ""),
                   label: String(f.label || ""),
-                  type: type as import("@/features/agent/types").FormFieldType,
+                  type,
                   required: Boolean(f.required),
                   width: (f.width as "full" | "half" | "third") || "full",
                   autoGenerated: Boolean(f.autoGenerated),
@@ -860,37 +1283,7 @@ export default function PhoenixPage() {
           case "accordion-list": {
             const rawItems = (c.items ?? c.fields ?? []) as Array<Record<string, unknown>>;
             const fieldItems = rawItems.filter((it: Record<string, unknown>) => !it.kind || it.kind === "field");
-            const tabsItems = rawItems.filter((it: Record<string, unknown>) => it.kind === "tabs");
-
-            const convertTabsToChildren = (tabs: Array<Record<string, unknown>>): import("@/features/agent/types").SectionSpec[] => {
-              const result: import("@/features/agent/types").SectionSpec[] = [];
-              for (const tabsItem of tabs) {
-                const tabDefs = (tabsItem.tabs as Array<{ id: string; label: string; items: Array<Record<string, unknown>> }>) ?? [];
-                for (const tab of tabDefs) {
-                  const tabFields = (tab.items ?? []).filter((f: Record<string, unknown>) => !f.kind || f.kind === "field");
-                  if (tabFields.length > 0) {
-                    result.push({
-                      type: "form" as const,
-                      id: `${s.id}-tab-${tab.id}`,
-                      title: tab.label,
-                      fields: tabFields.map((f: Record<string, unknown>) => {
-                        const rawType = String(f.type ?? "input");
-                        const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
-                        const ftype = isReadOnly ? "input" : rawType;
-                        return {
-                          id: String(f.id ?? ""),
-                          label: String(f.label ?? ""),
-                          type: ftype as import("@/features/agent/types").FormFieldType,
-                          required: Boolean(f.required),
-                          readOnly: isReadOnly || undefined,
-                        };
-                      }),
-                    });
-                  }
-                }
-              }
-              return result;
-            };
+            const blocks = wizardItemsToAccordionBlocks(rawItems, s.id);
 
             const existingChildren = c.children
               ? convertSections((c.children as typeof cfg.sections).map((ch: Record<string, unknown>) => ({
@@ -901,7 +1294,22 @@ export default function PhoenixPage() {
                 })))
               : [];
 
-            const tabChildren = convertTabsToChildren(tabsItems);
+            const legacyFields = fieldItems.map((f: Record<string, unknown>) => {
+              const rawType = String(f.type ?? "input");
+              const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
+              const type = mapWizardRawToPropertyType(rawType === "readonly" ? "input" : rawType, isReadOnly);
+              return {
+                id: String(f.id ?? ""),
+                label: String(f.label ?? ""),
+                type,
+                required: Boolean(f.required),
+                placeholder: f.placeholder ? String(f.placeholder) : undefined,
+                autoGenerated: Boolean(f.autoGenerated),
+                copyable: Boolean(f.copyable),
+                readOnly: isReadOnly || undefined,
+                rowId: f.rowId ? String(f.rowId) : undefined,
+              };
+            });
 
             return {
               type: "accordion-list" as const,
@@ -911,23 +1319,8 @@ export default function PhoenixPage() {
                 titleField: s.title,
                 hasStatusToggle: Boolean(c.hasStatusToggle),
                 actions: (c.actions as ("copy" | "view" | "delete")[]) || ["copy", "delete"],
-                fields: fieldItems.map((f: Record<string, unknown>) => {
-                  const rawType = String(f.type ?? "input");
-                  const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
-                  const type = rawType === "readonly" ? "input" : rawType;
-                  return {
-                    id: String(f.id ?? ""),
-                    label: String(f.label ?? ""),
-                    type: type as import("@/features/agent/types").PropertyFieldType,
-                    required: Boolean(f.required),
-                    placeholder: f.placeholder ? String(f.placeholder) : undefined,
-                    autoGenerated: Boolean(f.autoGenerated),
-                    copyable: Boolean(f.copyable),
-                    readOnly: isReadOnly || undefined,
-                    rowId: f.rowId ? String(f.rowId) : undefined,
-                  };
-                }),
-                children: [...existingChildren, ...tabChildren],
+                ...(blocks.length > 0 ? { blocks } : { fields: legacyFields }),
+                ...(existingChildren.length > 0 ? { children: existingChildren } : {}),
               },
             };
           }
@@ -981,11 +1374,11 @@ export default function PhoenixPage() {
                 fields: ((c.items ?? c.fields ?? []) as Array<Record<string, unknown>>).filter((it: Record<string, unknown>) => !it.kind || it.kind === "field").map((f: Record<string, unknown>) => {
                   const rawType = String(f.type || "input");
                   const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
-                  const type = rawType === "readonly" ? "input" : rawType;
+                  const type = (isReadOnly ? "input" : rawType) as import("@/features/agent/types").FormFieldType;
                   return {
                     id: String(f.id || ""),
                     label: String(f.label || ""),
-                    type: type as import("@/features/agent/types").FormFieldType,
+                    type,
                     width: "full" as const,
                     readOnly: isReadOnly || undefined,
                   };
@@ -1013,13 +1406,13 @@ export default function PhoenixPage() {
           id: s.id,
           title: s.title,
           fields: s.fields.map(f => {
-            const rawType = f.type;
+            const rawType = String(f.type);
             const isReadOnly = rawType === "readonly" || Boolean(f.readOnly);
-            const type = rawType === "readonly" ? "input" : rawType;
+            const type = mapWizardRawToPropertyType(rawType === "readonly" ? "input" : rawType, isReadOnly);
             return {
               id: f.id,
               label: f.label,
-              type: type as import("@/features/agent/types").PropertyFieldType,
+              type,
               required: f.required,
               autoGenerated: f.autoGenerated,
               placeholder: f.placeholder,
@@ -1040,40 +1433,6 @@ export default function PhoenixPage() {
       } : undefined,
     };
   }, []);
-
-  const handleWizardSubmit = useCallback((intent: WizardIntent) => {
-    console.log("[Phoenix handleWizardSubmit] Received intent:", {
-      title: intent.title,
-      tableColumns: intent.selectedFields?.tableColumns?.length,
-      columns: intent.selectedFields?.tableColumns?.map(c => c.label),
-      actions: Object.entries(intent.rowActions || {}).filter(([, v]) => v).map(([k]) => k),
-      propertiesFields: intent.createPageConfig?.propertiesPanel?.sections?.flatMap((s: { fields: Array<{ label: string }> }) => s.fields.map(f => f.label)),
-    });
-    const pageId = titleToFeatureId(intent.title);
-    const spec = buildSpecFromIntent(intent);
-    const createSpec = buildCreatePageSpec(intent);
-    const actionCount = Object.values(intent.rowActions).filter(Boolean).length;
-
-    const parentLabel = intent.navigation.isNewSection
-      ? intent.navigation.newSectionName
-      : navState.sections.find(s => s.id === intent.navigation.parentSection)?.label || intent.navigation.parentSection || "";
-
-    const request: FeatureRequest = {
-      id: `fr-${Date.now()}`,
-      pageId,
-      title: intent.title,
-      description: intent.description,
-      navigation: intent.navigation,
-      parentSectionLabel: parentLabel,
-      spec,
-      createPageSpec: createSpec!,
-      createdAt: new Date().toISOString(),
-      columnCount: intent.selectedFields.tableColumns.length,
-      actionCount,
-    };
-
-    setFeatureRequests(prev => [request, ...prev]);
-  }, [buildSpecFromIntent, buildCreatePageSpec, navState]);
 
 
   const handleApproveRequest = useCallback((request: FeatureRequest) => {
@@ -1103,6 +1462,9 @@ export default function PhoenixPage() {
     if (request.createPageSpec) {
       setCreatePageSpecs(prev => ({ ...prev, [request.pageId]: request.createPageSpec }));
     }
+    if (request.wizardIntent) {
+      setPageWizardIntents(prev => ({ ...prev, [request.pageId]: request.wizardIntent! }));
+    }
     setNavState(updated);
     saveNavigation(updated);
     setActivePage(request.pageId);
@@ -1120,13 +1482,21 @@ export default function PhoenixPage() {
     : null;
 
   return (
-    <div className="flex flex-col h-screen bg-[var(--color-base-surface-secondary)]">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[var(--color-base-surface-secondary)]">
       {/* Header */}
       <header className="h-14 flex-shrink-0 bg-[var(--color-base-surface-primary)] border-b border-[var(--color-base-stroke)] flex items-center justify-between pl-[6px] pr-4">
         <div className="flex items-center gap-3">
           <AppSwitcher />
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setDebugResetOpen(true)}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-lg border border-[var(--color-base-stroke)] text-[var(--color-base-tertiary)] hover:text-[var(--color-status-error)] hover:border-[var(--color-status-error)]/40 hover:bg-[var(--color-status-error)]/5 transition-colors"
+            title="Скинути всі апрувнуті сторінки, спеки таблиць, create pages, збережені рядки та чергу запитів (localStorage)"
+          >
+            Debug reset
+          </button>
           <FeatureRequestsDropdown
             requests={featureRequests}
             onApprove={handleApproveRequest}
@@ -1148,10 +1518,30 @@ export default function PhoenixPage() {
         </div>
       </header>
 
-      {/* Main Layout */}
-      <div className="flex flex-1 overflow-hidden">
+      <ConfirmModal
+        isOpen={debugResetOpen}
+        onClose={() => setDebugResetOpen(false)}
+        onConfirm={handleDebugResetConfirm}
+        title="Reset Phoenix (debug)?"
+        description="Default navigation will be restored, all approved pages, UISpec / Create page specs, saved table rows, and the feature requests queue will be removed. Wizard drafts (stored elsewhere) will not be affected."
+        confirmText="Reset all"
+        cancelText="Cancel"
+        variant="danger"
+      />
+
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        aria-hidden
+        onChange={handleCsvFileChange}
+      />
+
+      {/* Main Layout — min-h-0 щоб flex-дочірні елементи не роздували висоту документа (зайвий скрол body) */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-[220px] flex flex-col bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)]">
+        <aside className="flex w-[220px] min-h-0 shrink-0 flex-col bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)]">
           <div className="p-2 flex-1 overflow-y-auto">
             {navState.sections.map((section) => (
               <React.Fragment key={section.id}>
@@ -1166,9 +1556,9 @@ export default function PhoenixPage() {
                     />
                     {expandedMenus[section.id] && (
                       <div className="ml-2">
-                        {section.children.map((page) => (
+                        {section.children.map((page, pageIndex) => (
                           <SubNavItem
-                            key={page.id}
+                            key={`${section.id}-${pageIndex}-${page.id}`}
                             label={page.label}
                             active={activePage === page.id}
                             onClick={() => { setPreviewingRequest(null); setActiveCreatePage(null); setEditingRow(null); setActivePage(page.id); }}
@@ -1200,8 +1590,9 @@ export default function PhoenixPage() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-auto bg-[var(--color-base-surface-primary)]">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--color-base-surface-primary)]">
           {activeCreatePage && createPageSpecs[activeCreatePage] ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <CreatePageRenderer
               spec={createPageSpecs[activeCreatePage]}
               onBack={() => { setActiveCreatePage(null); setEditingRow(null); }}
@@ -1212,38 +1603,43 @@ export default function PhoenixPage() {
               onSaveAndClose={(rowData, editRowIndex) => {
                 const pageId = activeCreatePage;
                 if (!pageId) return;
+                const spec = pageId.startsWith("preview-")
+                  ? previewingRequest?.spec
+                  : pageSpecs[pageId];
+                const createSpec = pageId.startsWith("preview-")
+                  ? previewingRequest?.createPageSpec
+                  : createPageSpecs[pageId];
                 const columns = pageId.startsWith("preview-")
                   ? (previewingRequest?.spec?.table?.columns?.filter((c: { id: string }) => c.id !== "actions") ?? [])
                   : (pageSpecs[pageId]?.table?.columns?.filter((c: { id: string }) => c.id !== "actions") ?? []);
                 let newRow: Record<string, string>;
-                if (rowData && Object.keys(rowData).length > 0 && columns.length > 0) {
-                  newRow = {};
-                  const colIds = (columns as { id: string }[]).map(c => c.id);
-                  const bySuffix = (data: Record<string, string>, suffix: string) =>
-                    Object.entries(data).find(([k]) => k.endsWith(`-${suffix}`))?.[1];
-                  const bySuffixIgnoreCase = (data: Record<string, string>, suffix: string) =>
-                    Object.entries(data).find(([k]) => k.toLowerCase().endsWith(`-${suffix.toLowerCase()}`))?.[1];
-                  const byPrefixSuffix = (data: Record<string, string>, prefix: string, suffix: string) =>
-                    Object.entries(data).find(([k]) => k.startsWith(prefix) && k.toLowerCase().endsWith(`-${suffix.toLowerCase()}`))?.[1];
-                  for (const colId of colIds) {
-                    const colIdAlt = colId === "Title" ? "title" : colId === "title" ? "Title" : colId.charAt(0).toLowerCase() === colId.charAt(0) ? colId.charAt(0).toUpperCase() + colId.slice(1) : colId.charAt(0).toLowerCase() + colId.slice(1);
-                    const isTitleCol = colId.toLowerCase() === "title";
-                    newRow[colId] =
-                      rowData[colId] ??
-                      rowData[colIdAlt] ??
-                      bySuffix(rowData, colId) ??
-                      bySuffix(rowData, colIdAlt) ??
-                      (isTitleCol ? byPrefixSuffix(rowData, "prop-", "title") : undefined) ??
-                      (isTitleCol ? bySuffixIgnoreCase(rowData, "title") : undefined) ??
-                      "";
+                if (rowData && Object.keys(rowData).length > 0 && columns.length > 0 && spec && createSpec) {
+                  const targets = collectTargetFields(spec, createSpec);
+                  // Keep all form keys (prop-*, accordion-*, …) for Edit roundtrip; add canonical table column keys for the grid.
+                  newRow = { ...rowData };
+                  for (const col of columns as TableColumn[]) {
+                    if (col.type === "duration" && col.durationStartFieldId && col.durationEndFieldId) {
+                      const s = pickFieldValueFromRowData(rowData, col.durationStartFieldId, targets);
+                      const e = pickFieldValueFromRowData(rowData, col.durationEndFieldId, targets);
+                      newRow[col.id] = s && e ? `${s} - ${e}` : pickFieldValueFromRowData(rowData, col.id, targets);
+                    } else if (col.type === "live") {
+                      newRow[col.id] = pickFieldValueFromRowData(rowData, col.id, targets) || "true";
+                    } else {
+                      newRow[col.id] = pickFieldValueFromRowData(rowData, col.id, targets);
+                    }
                   }
                 } else if (columns.length > 0) {
                   newRow = generateDummyData(columns as TableColumn[], 1)[0];
                 } else {
                   newRow = { id: String(Date.now()), title: "New item" };
                 }
+                const now = new Date().toISOString();
                 if (editRowIndex !== undefined) {
                   newRow._createdAt = savedTableRows[pageId]?.[editRowIndex]?._createdAt ?? String(Date.now());
+                  if (!newRow["created-at"]) {
+                    newRow["created-at"] = savedTableRows[pageId]?.[editRowIndex]?.["created-at"] ?? now;
+                  }
+                  newRow["updated-at"] = now;
                   setSavedTableRows(prev => {
                     const list = [...(prev[pageId] || [])];
                     if (editRowIndex >= 0 && editRowIndex < list.length) list[editRowIndex] = newRow;
@@ -1253,6 +1649,8 @@ export default function PhoenixPage() {
                   setActiveCreatePage(null);
                 } else {
                   newRow._createdAt = String(Date.now());
+                  if (!newRow["created-at"]) newRow["created-at"] = now;
+                  if (!newRow["updated-at"]) newRow["updated-at"] = now;
                   setSavedTableRows(prev => ({
                     ...prev,
                     [pageId]: [...(prev[pageId] || []), newRow],
@@ -1261,8 +1659,9 @@ export default function PhoenixPage() {
                 }
               }}
             />
+            </div>
           ) : previewingRequest ? (
-            <div className="flex flex-col h-full">
+            <div className="flex h-full min-h-0 flex-col">
               <div className="flex-shrink-0 flex items-center justify-between gap-4 px-4 py-3 bg-[var(--color-status-warning)]/5 border-b border-[var(--color-status-warning)]/20">
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <div className="flex items-center justify-center w-8 h-8 shrink-0 rounded-lg bg-[var(--color-status-warning)]/10">
@@ -1282,6 +1681,36 @@ export default function PhoenixPage() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
+                    type="button"
+                    title={previewingRequest.wizardIntent ? "Відкрити візард з поточною конфігурацією" : "Немає збереженого стану візарду (старий реквест)"}
+                    disabled={!previewingRequest.wizardIntent}
+                    onClick={() => {
+                      if (!previewingRequest.wizardIntent) return;
+                      try {
+                        sessionStorage.setItem(
+                          "phoenix-wizard-bootstrap",
+                          JSON.stringify({
+                            intent: previewingRequest.wizardIntent,
+                            replaceRequestId: previewingRequest.id,
+                          }),
+                        );
+                      } catch {
+                        return;
+                      }
+                      window.location.href = "/wizard";
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                      previewingRequest.wizardIntent
+                        ? "border-[var(--color-base-stroke)] text-[var(--color-base-primary)] hover:bg-[var(--color-base-surface-secondary)]"
+                        : "border-[var(--color-base-stroke)] text-[var(--color-base-tertiary)] opacity-50 cursor-not-allowed"
+                    }`}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                      <path d="M11.333 2L14 4.667L5.333 13.333H2.667V10.667L11.333 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    Edit in Wizard
+                  </button>
+                  <button
                     onClick={() => {
                       handleRejectRequest(previewingRequest.id);
                       setPreviewingRequest(null);
@@ -1299,23 +1728,8 @@ export default function PhoenixPage() {
                   >
                     Close Preview
                   </button>
-                  <input
-                    ref={csvInputRef}
-                    type="file"
-                    accept=".csv"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = () => {
-                        if (typeof reader.result === "string") handleCsvImport(reader.result);
-                      };
-                      reader.readAsText(file);
-                      e.target.value = "";
-                    }}
-                  />
                   <button
+                    type="button"
                     onClick={() => csvInputRef.current?.click()}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg border border-[var(--color-brand-primary)] text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/10 transition-colors whitespace-nowrap"
                   >
@@ -1324,7 +1738,7 @@ export default function PhoenixPage() {
                       <path d="M8.5 11.5L7 13C5.9 14.1 4.1 14.1 3 13C1.9 11.9 1.9 10.1 3 9L4.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                       <path d="M7.5 4.5L9 3C10.1 1.9 11.9 1.9 13 3C14.1 4.1 14.1 5.9 13 7L11.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                     </svg>
-                    Link DB
+                    Upload CSV
                   </button>
                   <button
                     onClick={() => {
@@ -1340,10 +1754,10 @@ export default function PhoenixPage() {
                   </button>
                 </div>
               </div>
-              <div className="flex-1 overflow-hidden">
+              <div className="min-h-0 flex-1 overflow-hidden">
                 <PreviewRenderer
                   spec={previewingRequest.spec}
-                  onOpenWizard={() => setIsWizardOpen(true)}
+                  onOpenWizard={() => { window.location.href = "/wizard"; }}
                   savedRows={savedTableRows[`preview-${previewingRequest.pageId}`]}
                   onEditRow={(row, rowIndex) => {
                     const pageId = `preview-${previewingRequest.pageId}`;
@@ -1353,7 +1767,8 @@ export default function PhoenixPage() {
                   }}
                   onDuplicateRow={(row, _rowIndex) => {
                     const pageId = `preview-${previewingRequest.pageId}`;
-                    const copy: Record<string, unknown> = { ...row, _createdAt: String(Date.now()) };
+                    const dupNow = new Date().toISOString();
+                    const copy: Record<string, unknown> = { ...row, _createdAt: String(Date.now()), "created-at": dupNow, "updated-at": dupNow };
                     const titleKey = Object.keys(copy).find(k => k.toLowerCase() === "title" || k.toLowerCase() === "name");
                     if (titleKey && copy[titleKey]) copy[titleKey] = `${copy[titleKey]} (copy)`;
                     setSavedTableRows(prev => ({ ...prev, [pageId]: [...(prev[pageId] || []), copy as Record<string, string>] }));
@@ -1368,28 +1783,40 @@ export default function PhoenixPage() {
               </div>
             </div>
           ) : activePage && pageSpecs[activePage] ? (
-            <PreviewRenderer
-              spec={pageSpecs[activePage]}
-              onOpenWizard={() => setIsWizardOpen(true)}
-              savedRows={savedTableRows[activePage]}
-              onEditRow={(row, rowIndex) => {
-                setEditingRow({ pageId: activePage, rowIndex });
-                setActiveCreatePage(activePage);
-              }}
-              onDuplicateRow={(row, _rowIndex) => {
-                const copy: Record<string, unknown> = { ...row, _createdAt: String(Date.now()) };
-                const titleKey = Object.keys(copy).find(k => k.toLowerCase() === "title" || k.toLowerCase() === "name");
-                if (titleKey && copy[titleKey]) copy[titleKey] = `${copy[titleKey]} (copy)`;
-                setSavedTableRows(prev => ({ ...prev, [activePage]: [...(prev[activePage] || []), copy as Record<string, string>] }));
-              }}
-              onCreateClick={() => {
-                if (createPageSpecs[activePage]) {
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <PreviewRenderer
+                spec={pageSpecs[activePage]}
+                onOpenWizard={() => { window.location.href = "/wizard"; }}
+                onEditInWizard={pageWizardIntents[activePage] ? openApprovedPageInWizard : undefined}
+                editInWizardUnavailable={!pageWizardIntents[activePage]}
+                savedRows={savedTableRows[activePage]}
+                onEditRow={(row, rowIndex) => {
+                  setEditingRow({ pageId: activePage, rowIndex });
                   setActiveCreatePage(activePage);
-                } else {
-                  alert("No create page configured for this section.");
-                }
-              }}
-            />
+                }}
+                onDuplicateRow={(row, _rowIndex) => {
+                  const dupNow = new Date().toISOString();
+                  const copy: Record<string, unknown> = { ...row, _createdAt: String(Date.now()), "created-at": dupNow, "updated-at": dupNow };
+                  const titleKey = Object.keys(copy).find(k => k.toLowerCase() === "title" || k.toLowerCase() === "name");
+                  if (titleKey && copy[titleKey]) copy[titleKey] = `${copy[titleKey]} (copy)`;
+                  setSavedTableRows(prev => ({ ...prev, [activePage]: [...(prev[activePage] || []), copy as Record<string, string>] }));
+                }}
+                onCreateClick={() => {
+                  if (createPageSpecs[activePage]) {
+                    setActiveCreatePage(activePage);
+                  } else {
+                    alert("No create page configured for this section.");
+                  }
+                }}
+                onUploadCsvClick={() => {
+                  if (!createPageSpecs[activePage]) {
+                    alert("Немає create page — неможливо зіставити колонки CSV.");
+                    return;
+                  }
+                  csvInputRef.current?.click();
+                }}
+              />
+            </div>
           ) : activePage ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-4">
               <h2 className="text-lg font-semibold text-[var(--color-base-primary)] mb-2">
@@ -1425,11 +1852,6 @@ export default function PhoenixPage() {
         </main>
       </div>
 
-      <WizardModal
-        isOpen={isWizardOpen}
-        onClose={() => setIsWizardOpen(false)}
-        onSubmit={handleWizardSubmit}
-      />
     </div>
   );
 }

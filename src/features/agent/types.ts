@@ -78,10 +78,13 @@ export interface ActionConfig {
 export interface TableColumn {
   id: string;
   label: string;
-  type?: "text" | "number" | "date" | "status" | "actions";
+  type?: "text" | "number" | "date" | "status" | "actions" | "duration" | "live";
   sortable?: boolean;
   width?: string;
   copyable?: boolean;
+  /** Virtual Duration column: read values from these row keys */
+  durationStartFieldId?: string;
+  durationEndFieldId?: string;
   actions?: {
     view?: boolean;
     edit?: boolean;
@@ -118,7 +121,10 @@ export type FormFieldType =
   | "date-time"
   | "toggle"
   | "url"
-  | "readonly";
+  | "readonly"
+  | "percents"
+  | "coins"
+  | "diamonds";
 
 export interface FormField {
   id: string;
@@ -134,7 +140,14 @@ export interface FormField {
 
 // --- Editable Table Column ---
 
-export type EditableColumnType = "input" | "number" | "select" | "custom-picker" | "readonly";
+export type EditableColumnType =
+  | "input"
+  | "number"
+  | "select"
+  | "custom-picker"
+  | "readonly"
+  | "coins"
+  | "diamonds";
 
 export interface EditableColumn {
   id: string;
@@ -165,7 +178,13 @@ export interface AccordionListSpec {
     actions: ("copy" | "view" | "delete")[];
     /** Optional list of inputs shown in each accordion item (like Properties Panel fields) */
     fields?: PropertyField[];
-    children: SectionSpec[];
+    /** Nested sections (e.g. from wizard “children”) */
+    children?: SectionSpec[];
+    /**
+     * Ordered content from wizard (fields, section titles, buttons, tables, tabs).
+     * When present, CreatePageRenderer uses this instead of flattening fields/children.
+     */
+    blocks?: AccordionContentBlock[];
   };
 }
 
@@ -221,6 +240,12 @@ export type SectionSpec =
   | MediaUploadSpec
   | SimpleListSpec;
 
+/** Ordered content inside each accordion item (mirrors wizard canvas order). */
+export type AccordionContentBlock =
+  | { type: "field-row"; fields: PropertyField[] }
+  | { type: "child-section"; section: SectionSpec }
+  | { type: "tabbed"; tabs: { id: string; label: string; blocks: AccordionContentBlock[] }[] };
+
 // --- Properties Panel (Zone C) ---
 
 export type PropertyFieldType =
@@ -231,7 +256,18 @@ export type PropertyFieldType =
   | "toggle-group"
   | "readonly"
   | "user-count"
-  | "file-upload";
+  | "file-upload"
+  | "percents"
+  | "number"
+  | "coins"
+  | "diamonds"
+  | "multi-select"
+  | "toggle"
+  | "url"
+  /** Subtitle row (wizard Section component) */
+  | "section-heading"
+  /** Wizard action / button */
+  | "action-button";
 
 export interface PropertyField {
   id: string;

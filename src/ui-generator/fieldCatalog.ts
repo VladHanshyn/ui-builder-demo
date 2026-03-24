@@ -24,11 +24,19 @@ export interface FieldDefinition {
   enumValues?: string[];
 }
 
+/** Virtual columns only used in table config (not create form field types). */
+export type VirtualTableFieldDataType = "duration" | "live";
+
+export type FieldRefDataType = FieldDefinition["dataType"] | VirtualTableFieldDataType;
+
 export interface FieldRef {
   id: string;
   label: string;
-  dataType: FieldDefinition["dataType"];
+  dataType: FieldRefDataType;
   copyable?: boolean;
+  /** When dataType is "duration": source date-time field ids from Details */
+  durationStartFieldId?: string;
+  durationEndFieldId?: string;
 }
 
 // Categories
@@ -430,9 +438,16 @@ export function getPresetFields(preset: PresetType): {
 
 // Map data types to component IDs
 export function getComponentIdForDataType(
-  dataType: FieldDefinition["dataType"],
+  dataType: FieldRefDataType,
   placement: "table" | "grid" | "details"
 ): string {
+  if (dataType === "duration") {
+    return placement === "table" ? "duration-cell" : "text-field";
+  }
+  if (dataType === "live") {
+    return placement === "table" ? "live-toggle-cell" : "boolean-field";
+  }
+
   const mapping: Record<FieldDefinition["dataType"], string> = {
     string: "text-cell",
     number: "number-cell",

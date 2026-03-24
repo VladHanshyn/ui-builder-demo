@@ -8,6 +8,7 @@ import { DatePickerInput } from "@/components/ui/DatePicker";
 import { Toggle } from "@/components/ui/Toggle";
 import { IconButton } from "@/components/ui/IconButton";
 import { ButtonGroup, ButtonGroupItem } from "@/components/ui/ButtonGroup";
+import { Chip } from "@/components/ui/Chip";
 import type {
   CreatePageSpec,
   SectionSpec,
@@ -22,6 +23,7 @@ import type {
   PropertiesPanelSpec,
   PropertyField,
   PropertySection,
+  AccordionContentBlock,
 } from "../types";
 
 // ============================================
@@ -100,6 +102,19 @@ const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
 const PlusIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
     <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+  </svg>
+);
+
+const CoinIconSmall = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
+    <path fillRule="evenodd" clipRule="evenodd" d="M1.5 6C1.5 3.51472 3.51472 1.5 6 1.5C8.48528 1.5 10.5 3.51472 10.5 6C10.5 8.48528 8.48528 10.5 6 10.5C3.51472 10.5 1.5 8.48528 1.5 6Z" fill="#FFD200"/>
+    <circle cx="6" cy="6" r="3" fill="#FFE749"/>
+  </svg>
+);
+
+const DiamondIconSmall = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="shrink-0">
+    <path d="M10.3979 4.68396L6.71924 9.21228C6.5255 9.39592 6.27611 9.53845 5.99951 9.53845C5.72374 9.50906 5.47435 9.39586 5.27979 9.21228L1.77002 5.02576C1.68513 4.92466 1.63025 4.80702 1.60107 4.68396H10.3979Z" fill="#8B8D94"/>
   </svg>
 );
 
@@ -208,7 +223,7 @@ export function CreatePageRenderer({ spec, onBack, onSaveAndClose, initialFormDa
 
   return (
     <FormDataContext.Provider value={{ formData, setFieldValue }}>
-    <div className="flex flex-col h-full bg-[var(--color-base-surface-primary)]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--color-base-surface-primary)]">
       {saveError && (
         <div className="flex-shrink-0 px-6 py-2 bg-[var(--color-status-error)]/10 border-b border-[var(--color-status-error)]/30 text-sm text-[var(--color-status-error)]">
           {saveError}
@@ -257,9 +272,9 @@ export function CreatePageRenderer({ spec, onBack, onSaveAndClose, initialFormDa
       </div>
 
       {/* Body: Zone B + Zone C */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Zone B: Main Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-6 py-4">
           {/* Toolbar */}
           {spec.toolbar && (
             <div className="flex items-center justify-between mb-4">
@@ -290,19 +305,17 @@ export function CreatePageRenderer({ spec, onBack, onSaveAndClose, initialFormDa
 
           {/* Tabs */}
           {spec.tabs && spec.tabs.length > 0 && (
-            <div className="flex border-b border-[var(--color-base-stroke)] mb-4">
+            <div className="flex flex-wrap gap-2 mb-4">
               {spec.tabs.map(tab => (
-                <button
+                <Chip
                   key={tab.id}
+                  variant="outlined"
+                  selected={activeTab === tab.id}
+                  showCheckmark={false}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`px-4 py-2.5 text-sm font-medium transition-colors ${
-                    activeTab === tab.id
-                      ? "text-[var(--color-brand-primary)] border-b-2 border-[var(--color-brand-primary)]"
-                      : "text-[var(--color-base-secondary)] hover:text-[var(--color-base-primary)]"
-                  }`}
                 >
                   {tab.label}
-                </button>
+                </Chip>
               ))}
             </div>
           )}
@@ -418,39 +431,11 @@ function FormGroupRenderer({
 }
 
 function FieldGrid({ fields, sectionId }: { fields: FormField[]; sectionId: string }) {
-  const rows: FormField[][] = [];
-  let currentRow: FormField[] = [];
-  let currentWidth = 0;
-
-  for (const field of fields) {
-    const w = field.width === "half" ? 0.5 : field.width === "third" ? 0.333 : 1;
-    if (currentWidth + w > 1.01 && currentRow.length > 0) {
-      rows.push(currentRow);
-      currentRow = [field];
-      currentWidth = w;
-    } else {
-      currentRow.push(field);
-      currentWidth += w;
-    }
-  }
-  if (currentRow.length > 0) rows.push(currentRow);
-
   return (
-    <div className="space-y-4">
-      {rows.map((row, ri) => (
-        <div key={ri} className="flex gap-4">
-          {row.map(field => (
-            <div
-              key={field.id}
-              className={
-                field.width === "half" ? "flex-1" :
-                field.width === "third" ? "w-1/3" :
-                "w-full"
-              }
-            >
-              <FormFieldRenderer field={field} sectionKey={sectionId ? `section-${sectionId}-` : undefined} />
-            </div>
-          ))}
+    <div className="grid grid-cols-3 gap-4">
+      {fields.map(field => (
+        <div key={field.id} className="min-w-0">
+          <FormFieldRenderer field={field} sectionKey={sectionId ? `section-${sectionId}-` : undefined} />
         </div>
       ))}
     </div>
@@ -525,6 +510,42 @@ function FormFieldRenderer({ field, sectionKey }: { field: FormField; sectionKey
         <div>
           {label}
           <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "0"} />
+        </div>
+      );
+    }
+    case "coins": {
+      const [local, setLocal] = useState("");
+      const value = boundValue !== undefined ? boundValue : local;
+      const setValue = setBoundValue ?? setLocal;
+      return (
+        <div>
+          {label}
+          <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "10 000"} leftIcon={<CoinIconSmall />} />
+        </div>
+      );
+    }
+    case "diamonds": {
+      const [local, setLocal] = useState("");
+      const value = boundValue !== undefined ? boundValue : local;
+      const setValue = setBoundValue ?? setLocal;
+      return (
+        <div>
+          {label}
+          <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "10 000"} leftIcon={<DiamondIconSmall />} />
+        </div>
+      );
+    }
+    case "percents": {
+      const [local, setLocal] = useState("");
+      const value = boundValue !== undefined ? boundValue : local;
+      const setValue = setBoundValue ?? setLocal;
+      const percentSuffix = (
+        <span className="inline-flex items-center justify-center size-[22px] rounded-md bg-[var(--color-base-surface-secondary)] text-xs font-semibold text-[var(--color-base-secondary)]">%</span>
+      );
+      return (
+        <div>
+          {label}
+          <Input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "0"} rightIcon={percentSuffix} />
         </div>
       );
     }
@@ -614,8 +635,166 @@ function FormFieldRenderer({ field, sectionKey }: { field: FormField; sectionKey
 }
 
 // ============================================
-// B-01: ACCORDION LIST
+// B-01: ACCORDION LIST (ordered blocks from wizard)
 // ============================================
+
+function AccordionBlocksView({
+  blocks,
+  accordionSpecId,
+  isExpanded,
+  toggleItem,
+  selectedMaster,
+  setSelectedMaster,
+  itemNumericId,
+}: {
+  blocks: AccordionContentBlock[];
+  accordionSpecId: string;
+  isExpanded: (key: string) => boolean;
+  toggleItem: (key: string) => void;
+  selectedMaster: Record<string, number>;
+  setSelectedMaster: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  itemNumericId: number;
+}) {
+  return (
+    <>
+      {blocks.map((block, bi) => (
+        <AccordionBlockRenderer
+          key={`acc-${accordionSpecId}-${itemNumericId}-blk-${bi}`}
+          block={block}
+          accordionSpecId={accordionSpecId}
+          isExpanded={isExpanded}
+          toggleItem={toggleItem}
+          selectedMaster={selectedMaster}
+          setSelectedMaster={setSelectedMaster}
+          itemNumericId={itemNumericId}
+        />
+      ))}
+    </>
+  );
+}
+
+function TabbedAccordionBlock({
+  tabs,
+  accordionSpecId,
+  isExpanded,
+  toggleItem,
+  selectedMaster,
+  setSelectedMaster,
+  itemNumericId,
+}: {
+  tabs: { id: string; label: string; blocks: AccordionContentBlock[] }[];
+  accordionSpecId: string;
+  isExpanded: (key: string) => boolean;
+  toggleItem: (key: string) => void;
+  selectedMaster: Record<string, number>;
+  setSelectedMaster: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  itemNumericId: number;
+}) {
+  const [activeTabId, setActiveTabId] = useState(tabs[0]?.id ?? "");
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    if (!tabs.some(t => t.id === activeTabId)) setActiveTabId(tabs[0].id);
+  }, [tabs, activeTabId]);
+  const active = tabs.find(t => t.id === activeTabId) ?? tabs[0];
+  if (!active) return null;
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {tabs.map(t => (
+          <Chip
+            key={t.id}
+            variant="outlined"
+            selected={activeTabId === t.id}
+            showCheckmark={false}
+            onClick={() => setActiveTabId(t.id)}
+          >
+            {t.label}
+          </Chip>
+        ))}
+      </div>
+      <div className="space-y-4">
+        <AccordionBlocksView
+          blocks={active.blocks}
+          accordionSpecId={accordionSpecId}
+          isExpanded={isExpanded}
+          toggleItem={toggleItem}
+          selectedMaster={selectedMaster}
+          setSelectedMaster={setSelectedMaster}
+          itemNumericId={itemNumericId}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AccordionBlockRenderer({
+  block,
+  accordionSpecId,
+  isExpanded,
+  toggleItem,
+  selectedMaster,
+  setSelectedMaster,
+  itemNumericId,
+}: {
+  block: AccordionContentBlock;
+  accordionSpecId: string;
+  isExpanded: (key: string) => boolean;
+  toggleItem: (key: string) => void;
+  selectedMaster: Record<string, number>;
+  setSelectedMaster: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  itemNumericId: number;
+}) {
+  if (block.type === "field-row") {
+    const fields = block.fields;
+    const rows: PropertyField[][] = [];
+    const seen = new Set<string>();
+    for (const field of fields) {
+      const rid = field.rowId ?? field.id;
+      if (seen.has(rid)) continue;
+      seen.add(rid);
+      rows.push(fields.filter(f => (f.rowId ?? f.id) === rid));
+    }
+    return (
+      <>
+        {rows.map(rowFields =>
+          rowFields.length === 1 ? (
+            <PropertyFieldRenderer key={rowFields[0].id} field={rowFields[0]} sectionKey={`accordion-${accordionSpecId}-`} />
+          ) : (
+            <div key={rowFields.map(f => f.id).join("-")} className="flex gap-2">
+              {rowFields.map(field => (
+                <div key={field.id} className="flex-1 min-w-0">
+                  <PropertyFieldRenderer field={field} sectionKey={`accordion-${accordionSpecId}-`} />
+                </div>
+              ))}
+            </div>
+          ),
+        )}
+      </>
+    );
+  }
+  if (block.type === "child-section") {
+    return (
+      <SectionRenderer
+        section={block.section}
+        isExpanded={isExpanded}
+        toggleItem={toggleItem}
+        selectedMaster={selectedMaster}
+        setSelectedMaster={setSelectedMaster}
+      />
+    );
+  }
+  return (
+    <TabbedAccordionBlock
+      tabs={block.tabs}
+      accordionSpecId={accordionSpecId}
+      isExpanded={isExpanded}
+      toggleItem={toggleItem}
+      selectedMaster={selectedMaster}
+      setSelectedMaster={setSelectedMaster}
+      itemNumericId={itemNumericId}
+    />
+  );
+}
 
 function AccordionListRenderer({
   spec,
@@ -749,36 +928,48 @@ function AccordionListRenderer({
             {/* Accordion Body */}
             {expanded && (
               <div className="p-4 space-y-4">
-                {spec.itemTemplate.fields && spec.itemTemplate.fields.length > 0 && (
-                  <div className="space-y-4">
-                    {(() => {
-                      const fields = spec.itemTemplate.fields!;
-                      const rows: Array<typeof fields> = [];
-                      const seen = new Set<string>();
-                      for (const field of fields) {
-                        const rid = field.rowId ?? field.id;
-                        if (seen.has(rid)) continue;
-                        seen.add(rid);
-                        const group = fields.filter(f => (f.rowId ?? f.id) === rid);
-                        rows.push(group);
-                      }
-                      return rows.map((rowFields) =>
-                        rowFields.length === 1 ? (
-                          <PropertyFieldRenderer key={rowFields[0].id} field={rowFields[0]} sectionKey={`accordion-${spec.id}-`} />
-                        ) : (
-                          <div key={rowFields.map(f => f.id).join("-")} className="flex gap-2">
-                            {rowFields.map(field => (
-                              <div key={field.id} className="flex-1 min-w-0">
-                                <PropertyFieldRenderer field={field} sectionKey={`accordion-${spec.id}-`} />
-                              </div>
-                            ))}
-                          </div>
-                        )
-                      );
-                    })()}
-                  </div>
+                {spec.itemTemplate.blocks && spec.itemTemplate.blocks.length > 0 ? (
+                  <AccordionBlocksView
+                    blocks={spec.itemTemplate.blocks}
+                    accordionSpecId={spec.id}
+                    isExpanded={isExpanded}
+                    toggleItem={toggleItem}
+                    selectedMaster={selectedMaster}
+                    setSelectedMaster={setSelectedMaster}
+                    itemNumericId={item.id}
+                  />
+                ) : (
+                  spec.itemTemplate.fields && spec.itemTemplate.fields.length > 0 && (
+                    <div className="space-y-4">
+                      {(() => {
+                        const fields = spec.itemTemplate.fields!;
+                        const rows: Array<typeof fields> = [];
+                        const seen = new Set<string>();
+                        for (const field of fields) {
+                          const rid = field.rowId ?? field.id;
+                          if (seen.has(rid)) continue;
+                          seen.add(rid);
+                          const group = fields.filter(f => (f.rowId ?? f.id) === rid);
+                          rows.push(group);
+                        }
+                        return rows.map((rowFields) =>
+                          rowFields.length === 1 ? (
+                            <PropertyFieldRenderer key={rowFields[0].id} field={rowFields[0]} sectionKey={`accordion-${spec.id}-`} />
+                          ) : (
+                            <div key={rowFields.map(f => f.id).join("-")} className="flex gap-2">
+                              {rowFields.map(field => (
+                                <div key={field.id} className="flex-1 min-w-0">
+                                  <PropertyFieldRenderer field={field} sectionKey={`accordion-${spec.id}-`} />
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        );
+                      })()}
+                    </div>
+                  )
                 )}
-                {spec.itemTemplate.children.map(child => (
+                {(spec.itemTemplate.children ?? []).map(child => (
                   <SectionRenderer
                     key={child.id}
                     section={child}
@@ -801,57 +992,100 @@ function AccordionListRenderer({
 // ============================================
 
 function EditableTableRenderer({ spec }: { spec: EditableTableSpec }) {
-  const [rows, setRows] = useState([{ id: 1 }]);
+  const ctx = useContext(FormDataContext);
+  const [nextId, setNextId] = useState(2);
+  const [rows, setRows] = useState(() => [{ id: 1 }]);
+
+  const hasHydrated = useRef(false);
+  /** Реагуємо на появу значень у formData (імпорт CSV / відкриття Edit), не ставимо hasHydrated, поки даних немає */
+  const importFingerprint = ctx
+    ? spec.columns.map(col => ctx.formData[`${spec.id}-${col.id}`] ?? ctx.formData[col.id] ?? "").join("\0")
+    : "";
+  useEffect(() => {
+    if (hasHydrated.current || !ctx) return;
+    const hasData = spec.columns.some(col => {
+      const key = `${spec.id}-${col.id}`;
+      return (ctx.formData[key] ?? ctx.formData[col.id] ?? "").trim() !== "";
+    });
+    if (!hasData) return;
+    hasHydrated.current = true;
+    spec.columns.forEach(col => {
+      const raw = ctx.formData[`${spec.id}-${col.id}`] ?? ctx.formData[col.id] ?? "";
+      ctx.setFieldValue(`${spec.id}-${col.id}-0`, raw);
+    });
+  }, [ctx, spec, importFingerprint]);
 
   const addRow = () => {
-    setRows(prev => [...prev, { id: prev.length + 1 }]);
+    setRows(prev => [...prev, { id: nextId }]);
+    setNextId(n => n + 1);
   };
 
   const removeRow = (id: number) => {
-    setRows(prev => prev.filter(r => r.id !== id));
+    setRows(prev => {
+      const updated = prev.filter(r => r.id !== id);
+      if (ctx) {
+        spec.columns.forEach(col => {
+          updated.forEach((r, idx) => {
+            const oldKey = `${spec.id}-${col.id}-${prev.indexOf(r)}`;
+            const newKey = `${spec.id}-${col.id}-${idx}`;
+            if (oldKey !== newKey) {
+              ctx.setFieldValue(newKey, ctx.formData[oldKey] ?? "");
+            }
+          });
+          for (let i = updated.length; i <= prev.length; i++) {
+            ctx.setFieldValue(`${spec.id}-${col.id}-${i}`, "");
+          }
+        });
+      }
+      return updated;
+    });
   };
 
   return (
-    <div className="border-b border-[var(--color-base-stroke)] pb-4 last:border-b-0">
+    <div>
       <h3 className="text-label-normal font-semibold text-[var(--color-base-primary)] mb-3">
         {spec.title}
       </h3>
 
       <div className="border border-[var(--color-base-stroke)] rounded-lg overflow-hidden">
-        <table className="w-full">
+        <table className="w-full" style={{ tableLayout: "fixed" }}>
+          <colgroup>
+            {spec.hasDragHandle && <col style={{ width: 32 }} />}
+            {spec.columns.map(col => (
+              <col key={col.id} />
+            ))}
+            <col style={{ width: 52 }} />
+          </colgroup>
           <thead>
             <tr className="border-b border-[var(--color-base-stroke)]">
               {spec.hasDragHandle && (
-                <th className="w-8 px-2 bg-[var(--color-base-surface-secondary)] h-8" />
+                <th className="px-2 bg-[var(--color-base-surface-secondary)] h-8" />
               )}
               {spec.columns.map(col => (
                 <th
                   key={col.id}
-                  className="px-2 h-8 text-left text-label-normal text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)] last:border-r-0"
-                  style={{ width: col.width }}
+                  className="px-2 h-8 text-left text-label-normal text-[var(--color-base-secondary)] bg-[var(--color-base-surface-secondary)] border-r border-[var(--color-base-stroke)] last:border-r-0 truncate"
                 >
                   {col.label}
                 </th>
               ))}
-              <th className="w-16 px-2 bg-[var(--color-base-surface-secondary)] h-8 text-left text-label-normal text-[var(--color-base-secondary)]">
-                Actions
-              </th>
+              <th className="px-2 bg-[var(--color-base-surface-secondary)] h-8" />
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
+            {rows.map((row, rowIdx) => (
               <tr key={row.id} className="border-b border-[var(--color-base-stroke)] last:border-b-0">
                 {spec.hasDragHandle && (
-                  <td className="w-8 px-2 h-10">
+                  <td className="px-2 h-10">
                     <div className="cursor-grab"><DragHandleIcon /></div>
                   </td>
                 )}
                 {spec.columns.map(col => (
-                  <td key={col.id} className="px-1 h-10 border-r border-[var(--color-base-stroke)] last:border-r-0">
-                    <EditableCellRenderer column={col} rowId={row.id} />
+                  <td key={col.id} className="px-1 h-10 border-r border-[var(--color-base-stroke)] last:border-r-0 overflow-hidden">
+                    <EditableCellRenderer column={col} tableId={spec.id} rowIdx={rowIdx} />
                   </td>
                 ))}
-                <td className="w-16 px-2 h-10">
+                <td className="px-2 h-10">
                   <ButtonGroup>
                     <ButtonGroupItem
                       icon={<DeleteIcon />}
@@ -866,35 +1100,44 @@ function EditableTableRenderer({ spec }: { spec: EditableTableSpec }) {
           </tbody>
         </table>
       </div>
-
-      <button
-        onClick={addRow}
-        className="flex items-center gap-1.5 px-3 py-2 mt-2 text-sm font-medium text-[var(--color-brand-primary)] hover:bg-[var(--color-brand-primary)]/5 rounded-lg transition-colors"
-      >
-        <PlusIcon />
-        {spec.addLabel}
-      </button>
     </div>
   );
 }
 
-function EditableCellRenderer({ column, rowId }: { column: EditableColumn; rowId: number }) {
+function EditableCellRenderer({ column, tableId, rowIdx }: { column: EditableColumn; tableId: string; rowIdx: number }) {
+  const ctx = useContext(FormDataContext);
+  const dataKey = `${tableId}-${column.id}-${rowIdx}`;
+  const boundValue = ctx?.formData[dataKey] ?? "";
+  const setValue = (v: string) => {
+    ctx?.setFieldValue(dataKey, v);
+    ctx?.setFieldValue(`${tableId}-${column.id}`, v);
+    ctx?.setFieldValue(column.id, v);
+  };
+
+  const inputCls = "!border-0 !bg-transparent !shadow-none !ring-0 h-8 text-sm w-full min-w-0";
   switch (column.type) {
     case "select":
       return (
         <Select
+          value={boundValue || undefined}
+          onChange={(v) => setValue(String(v ?? ""))}
           placeholder="Select..."
           options={(column.options || ["Option 1", "Option 2"]).map(o => ({ label: o, value: o }))}
+          className="min-w-0"
         />
       );
     case "number":
-      return <Input type="number" placeholder="0" className="!border-0 !bg-transparent !shadow-none !ring-0 h-8 text-sm" />;
+      return <Input type="number" value={boundValue} onChange={e => setValue(e.target.value)} placeholder="0" className={inputCls} />;
+    case "coins":
+      return <Input type="number" value={boundValue} onChange={e => setValue(e.target.value)} placeholder="0" leftIcon={<CoinIconSmall />} className={inputCls} />;
+    case "diamonds":
+      return <Input type="number" value={boundValue} onChange={e => setValue(e.target.value)} placeholder="0" leftIcon={<DiamondIconSmall />} className={inputCls} />;
     case "input":
-      return <Input placeholder="" className="!border-0 !bg-transparent !shadow-none !ring-0 h-8 text-sm" />;
+      return <Input value={boundValue} onChange={e => setValue(e.target.value)} placeholder="" className={inputCls} />;
     case "readonly":
-      return <span className="text-paragraph-2 text-[var(--color-base-tertiary)] px-2">{column.label} {rowId}</span>;
+      return <span className="text-paragraph-2 text-[var(--color-base-tertiary)] px-2 truncate block">{boundValue || `${column.label} ${rowIdx + 1}`}</span>;
     default:
-      return <Input placeholder="" className="!border-0 !bg-transparent !shadow-none !ring-0 h-8 text-sm" />;
+      return <Input value={boundValue} onChange={e => setValue(e.target.value)} placeholder="" className={inputCls} />;
   }
 }
 
@@ -1123,10 +1366,6 @@ function SimpleListRenderer({ spec, registerAddHandler }: { spec: SimpleListSpec
               <DeleteIcon />
             </button>
           </div>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--color-brand-primary)]">
-            <PlusIcon />
-            {spec.itemTemplate.childList.addLabel}
-          </button>
         </div>
       )}
 
@@ -1256,6 +1495,23 @@ function PropertyFieldRenderer({ field, sectionKey }: { field: PropertyField; se
       }
     : undefined;
 
+  if (field.type === "section-heading") {
+    return (
+      <div className="pt-0.5 pb-1">
+        <h4 className="text-sm font-semibold text-[var(--color-base-primary)]">{field.label}</h4>
+      </div>
+    );
+  }
+  if (field.type === "action-button") {
+    return (
+      <div className="pt-1">
+        <Button variant="secondary" type="button" leftIcon={<PlusIcon />} onClick={() => {}}>
+          {field.label}
+        </Button>
+      </div>
+    );
+  }
+
   if (field.readOnly) {
     const inputRef = useRef<HTMLInputElement>(null);
     const getCopyValue = () => (inputRef.current?.value ?? "").trim() || (field.autoGenerated ? "Will be generated after save" : "");
@@ -1327,8 +1583,130 @@ function PropertyFieldRenderer({ field, sectionKey }: { field: PropertyField; se
         </div>
       );
     }
+    case "multi-select": {
+      const [localValue, setLocalValue] = useState("");
+      const value = boundValue !== undefined ? boundValue : localValue;
+      const setValue = setBoundValue ?? setLocalValue;
+      return (
+        <div>
+          {label}
+          <Select
+            value={(() => {
+              const arr = value ? value.split(",").map(s => s.trim()).filter(Boolean) : [];
+              return arr.length > 0 ? arr : undefined;
+            })()}
+            onChange={(v) => setValue(Array.isArray(v) ? v.join(",") : String(v ?? ""))}
+            placeholder={field.placeholder || "Select..."}
+            options={(field.options || ["Option 1", "Option 2", "Option 3"]).map(o => ({ label: o, value: o }))}
+            multiple
+          />
+        </div>
+      );
+    }
+    case "number": {
+      const [localValue, setLocalValue] = useState("");
+      const value = boundValue !== undefined ? boundValue : localValue;
+      const setValue = setBoundValue ?? setLocalValue;
+      return (
+        <div>
+          {label}
+          {wrapWithCopy(
+            <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "0"} />,
+            value
+          )}
+        </div>
+      );
+    }
+    case "coins": {
+      const [localValue, setLocalValue] = useState("");
+      const value = boundValue !== undefined ? boundValue : localValue;
+      const setValue = setBoundValue ?? setLocalValue;
+      return (
+        <div>
+          {label}
+          {wrapWithCopy(
+            <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "10 000"} leftIcon={<CoinIconSmall />} />,
+            value
+          )}
+        </div>
+      );
+    }
+    case "diamonds": {
+      const [localValue, setLocalValue] = useState("");
+      const value = boundValue !== undefined ? boundValue : localValue;
+      const setValue = setBoundValue ?? setLocalValue;
+      return (
+        <div>
+          {label}
+          {wrapWithCopy(
+            <Input type="number" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "10 000"} leftIcon={<DiamondIconSmall />} />,
+            value
+          )}
+        </div>
+      );
+    }
+    case "url": {
+      const [localValue, setLocalValue] = useState("");
+      const value = boundValue !== undefined ? boundValue : localValue;
+      const setValue = setBoundValue ?? setLocalValue;
+      return (
+        <div>
+          {label}
+          {wrapWithCopy(
+            <Input type="url" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "https://"} />,
+            value
+          )}
+        </div>
+      );
+    }
+    case "toggle":
+      return (
+        <div className="flex items-center gap-3 py-1">
+          <Toggle label={field.label} />
+        </div>
+      );
+    case "percents": {
+      const [localValue, setLocalValue] = useState("");
+      const value = boundValue !== undefined ? boundValue : localValue;
+      const setValue = setBoundValue ?? setLocalValue;
+      const percentSuffix = (
+        <span className="inline-flex items-center justify-center size-[22px] rounded-md bg-[var(--color-base-surface-secondary)] text-xs font-semibold text-[var(--color-base-secondary)]">%</span>
+      );
+      return (
+        <div>
+          {label}
+          {wrapWithCopy(
+            <Input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={field.placeholder || "0"} rightIcon={percentSuffix} />,
+            value
+          )}
+        </div>
+      );
+    }
     case "date-time": {
-      const [dateValue, setDateValue] = useState<Date | null>(null);
+      const parseImportedDateString = (s: string | undefined): Date | null => {
+        if (!s?.trim()) return null;
+        const t = s.trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(t)) {
+          const d = new Date(t);
+          return Number.isNaN(d.getTime()) ? null : d;
+        }
+        const slash = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (slash) {
+          const month = parseInt(slash[1], 10);
+          const day = parseInt(slash[2], 10);
+          const year = parseInt(slash[3], 10);
+          if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            const d = new Date(year, month - 1, day);
+            return Number.isNaN(d.getTime()) ? null : d;
+          }
+        }
+        const p = Date.parse(t);
+        return Number.isNaN(p) ? null : new Date(p);
+      };
+      const [dateValue, setDateValue] = useState<Date | null>(() => parseImportedDateString(boundValue));
+      useEffect(() => {
+        setDateValue(parseImportedDateString(boundValue));
+      }, [boundValue]);
       const formatDateForDisplay = (d: Date) =>
         d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit", year: "numeric" });
       const copyValue = dateValue ? formatDateForDisplay(dateValue) : "";

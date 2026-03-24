@@ -16,7 +16,7 @@ export {
   downloadYaml,
 } from './storage';
 export { UISpecRenderer } from './renderer';
-export { WizardModal, WizardPage } from './WizardModal';
+export { WizardPage } from './UI-Lego';
 export { intentToUiSpec, intentToUiSpecWithValidation, intentToYaml, intentToSummary } from './intentToUiSpec';
 export type { IntentToSpecResult, AutoFix } from './intentToUiSpec';
 export type {
@@ -46,8 +46,8 @@ export { createDefaultWizardIntent, WIZARD_STEPS, titleToFeatureId } from './wiz
 
 // Navigation Tree
 export type { NavSection, NavPage, NavigationState } from './navigationTree';
-export { DEFAULT_SECTIONS, getNavigation, saveNavigation, addPageToSection, addNewSection, getSectionsForPicker } from './navigationTree';
+export { DEFAULT_SECTIONS, getNavigation, saveNavigation, normalizeNavigationState, addPageToSection, addNewSection, updatePageLabel, getSectionsForPicker } from './navigationTree';
 
 // Field Catalog
-export type { FieldDefinition, FieldRef, FieldCategory, PresetType } from './fieldCatalog';
+export type { FieldDefinition, FieldRef, FieldRefDataType, FieldCategory, PresetType } from './fieldCatalog';
 export { categories, fields, getPresetFields, getFieldById, searchFields, getFieldsByCategory, getComponentIdForDataType } from './fieldCatalog';

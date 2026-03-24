@@ -423,6 +423,24 @@ export function generateDummyData(columns: TableColumn[], count: number = 5): Re
     
     for (const col of columns) {
       const colId = col.id.toLowerCase();
+
+      if (col.type === "live") {
+        row[col.id] = "true";
+        continue;
+      }
+
+      if (col.type === "duration" && col.durationStartFieldId && col.durationEndFieldId) {
+        const start = new Date();
+        start.setDate(start.getDate() - i);
+        start.setHours(8, 0, 0, 0);
+        const end = new Date(start);
+        end.setFullYear(end.getFullYear() + 1);
+        end.setHours(11, 0, 0, 0);
+        row[col.durationStartFieldId] = row[col.durationStartFieldId] || start.toISOString();
+        row[col.durationEndFieldId] = row[col.durationEndFieldId] || end.toISOString();
+        row[col.id] = `${row[col.durationStartFieldId]} - ${row[col.durationEndFieldId]}`;
+        continue;
+      }
       
       // Match by column ID or label
       if (colId === "id" || colId.includes("id")) {

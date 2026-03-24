@@ -52,13 +52,37 @@ export const DEFAULT_SECTIONS: NavSection[] = [
   { id: "history", label: "History", icon: "history", children: [] },
 ];
 
+/** One page id per section (last occurrence wins) — fixes duplicate keys / bad localStorage merges */
+function dedupePagesById(pages: NavPage[]): NavPage[] {
+  const map = new Map<string, NavPage>();
+  for (const p of pages) {
+    if (!p || typeof p.id !== "string") continue;
+    map.set(p.id, { ...p });
+  }
+  return Array.from(map.values());
+}
+
+/** Dedupes child pages per section; use after loading from storage or merging. */
+export function normalizeNavigationState(state: NavigationState): NavigationState {
+  if (!state?.sections || !Array.isArray(state.sections)) {
+    return { sections: DEFAULT_SECTIONS };
+  }
+  return {
+    sections: state.sections.map((section) => ({
+      ...section,
+      children: Array.isArray(section.children) ? dedupePagesById(section.children) : [],
+    })),
+  };
+}
+
 export function getNavigation(): NavigationState {
   if (typeof window === "undefined") return { sections: DEFAULT_SECTIONS };
 
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored) as NavigationState;
+      return normalizeNavigationState(parsed);
     }
   } catch {
     // ignore
@@ -68,21 +92,45 @@ export function getNavigation(): NavigationState {
 
 export function saveNavigation(state: NavigationState): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeNavigationState(state)));
 }
 
 /**
  * Add a new page to an existing section
  */
+/**
+ * Update sidebar label for an existing page (e.g. after renaming in Wizard «Edit approved»).
+ */
+export function updatePageLabel(
+  state: NavigationState,
+  pageId: string,
+  newLabel: string,
+): NavigationState {
+  return {
+    sections: state.sections.map((section) => ({
+      ...section,
+      children: section.children.map((p) =>
+        p.id === pageId ? { ...p, label: newLabel } : p,
+      ),
+    })),
+  };
+}
+
 export function addPageToSection(
   state: NavigationState,
   sectionId: string,
   page: NavPage,
 ): NavigationState {
+  const pageWithParent = { ...page, parentId: sectionId };
   return {
     sections: state.sections.map((section) =>
       section.id === sectionId
-        ? { ...section, children: [...section.children, page] }
+        ? {
+            ...section,
+            children: section.children.some((p) => p.id === page.id)
+              ? section.children.map((p) => (p.id === page.id ? pageWithParent : p))
+              : [...section.children, pageWithParent],
+          }
         : section
     ),
   };

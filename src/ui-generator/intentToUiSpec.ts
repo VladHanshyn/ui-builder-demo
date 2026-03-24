@@ -68,7 +68,10 @@ export function intentToUiSpec(intent: WizardIntent, autoFixes?: AutoFix[]): UIS
   }
 
   // STRUCT-006: If selectable table but no bulk actions pattern, auto-add P-15
-  const hasSelection = bulkActions.approveSelected || bulkActions.rejectSelected;
+  const hasSelection =
+    (bulkActions.multiselect ?? false) ||
+    bulkActions.approveSelected ||
+    bulkActions.rejectSelected;
   if (hasSelection) {
     patternsUsed.push("P-15");
   }
@@ -303,8 +306,12 @@ function buildContentComponents(intent: WizardIntent, fixes: AutoFix[]): Compone
         type: componentId,
         sortable: ["date", "number"].includes(field.dataType),
         ...(field.dataType === "id" ? { width: "80px" } : {}),
+        ...(field.dataType === "live" ? { width: "80px" } : {}),
         ...(field.dataType === "media" ? { type: "image" } : {}),
         ...(field.copyable ? { copyable: true } : {}),
+        ...(field.dataType === "duration" && field.durationStartFieldId && field.durationEndFieldId
+          ? { durationStartFieldId: field.durationStartFieldId, durationEndFieldId: field.durationEndFieldId }
+          : {}),
       },
     };
   });
@@ -374,7 +381,10 @@ function buildContentComponents(intent: WizardIntent, fixes: AutoFix[]): Compone
       id: "data-table",
       props: {
         view: primaryView,
-        selectable: bulkActions.approveSelected || bulkActions.rejectSelected,
+        selectable:
+          (bulkActions.multiselect ?? false) ||
+          bulkActions.approveSelected ||
+          bulkActions.rejectSelected,
         pagination: true,
       },
       data_binding: {
@@ -461,6 +471,7 @@ export function intentToYaml(intent: WizardIntent): string {
   lines.push(``);
   lines.push(`# Bulk Actions`);
   lines.push(`bulkActions:`);
+  if (intent.bulkActions.multiselect) lines.push(`  - multiselect`);
   if (intent.bulkActions.approveSelected) lines.push(`  - approveSelected`);
   if (intent.bulkActions.rejectSelected) {
     lines.push(`  - rejectSelected${intent.bulkActions.rejectRequiresReason ? " (requires reason)" : ""}`);
@@ -526,6 +537,7 @@ export function intentToSummary(intent: WizardIntent): string[] {
 
   // Bulk actions
   const bulkActionsList = [];
+  if (intent.bulkActions.multiselect) bulkActionsList.push("Multiselect");
   if (intent.bulkActions.approveSelected) bulkActionsList.push("Approve Selected");
   if (intent.bulkActions.rejectSelected) bulkActionsList.push("Reject Selected");
   summary.push(`Bulk Actions: ${bulkActionsList.length > 0 ? bulkActionsList.join(", ") : "None"}`);

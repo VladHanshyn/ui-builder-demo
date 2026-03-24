@@ -5,9 +5,17 @@ import {
   HTMLAttributes,
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
+  useRef,
 } from "react";
+import { createPortal } from "react-dom";
+import {
+  clampHorizontalLeft,
+  computeVerticalDropdownPosition,
+  DROPDOWN_GAP,
+} from "@/lib/dropdownPlacement";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/icons";
 import { Button } from "./Button";
 import { Toggle } from "./Toggle";
@@ -565,6 +573,9 @@ export interface DatePickerInputProps extends Omit<DatePickerProps, "className">
   pickerClassName?: string;
 }
 
+/** Орієнтовна висота календаря до виміру (для першого кадру flip) */
+const DATE_PICKER_PANEL_ESTIMATE_PX = 380;
+
 export const DatePickerInput = forwardRef<HTMLDivElement, DatePickerInputProps>(
   (
     {
@@ -585,9 +596,17 @@ export const DatePickerInput = forwardRef<HTMLDivElement, DatePickerInputProps>(
     ref
   ) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [mounted, setMounted] = useState(false);
+    const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
+    const triggerRef = useRef<HTMLButtonElement>(null);
+    const popoverRef = useRef<HTMLDivElement>(null);
     const [selectedDate, setSelectedDate] = useState<Date | null>(
       value !== undefined ? value : (defaultValue || null)
     );
+
+    useEffect(() => {
+      setMounted(true);
+    }, []);
 
     useEffect(() => {
       if (value !== undefined) {
@@ -604,6 +623,44 @@ export const DatePickerInput = forwardRef<HTMLDivElement, DatePickerInputProps>(
       setIsOpen(false);
       pickerProps.onApply?.();
     };
+
+    const updatePopoverPosition = useCallback(() => {
+      if (!triggerRef.current) return;
+      const tr = triggerRef.current.getBoundingClientRect();
+      const ph =
+        popoverRef.current && popoverRef.current.offsetHeight > 0
+          ? popoverRef.current.getBoundingClientRect().height
+          : DATE_PICKER_PANEL_ESTIMATE_PX;
+      const { top } = computeVerticalDropdownPosition({
+        triggerRect: tr,
+        panelHeight: ph,
+        gap: DROPDOWN_GAP,
+      });
+      const w = popoverRef.current?.offsetWidth ?? Math.max(tr.width, 216);
+      const left = clampHorizontalLeft(tr.left, w);
+      setPopoverPos({ top, left });
+    }, []);
+
+    useLayoutEffect(() => {
+      if (!isOpen || !mounted) return;
+      updatePopoverPosition();
+      const ro =
+        typeof ResizeObserver !== "undefined" && popoverRef.current
+          ? new ResizeObserver(() => {
+              requestAnimationFrame(updatePopoverPosition);
+            })
+          : null;
+      if (popoverRef.current && ro) ro.observe(popoverRef.current);
+      window.addEventListener("resize", updatePopoverPosition);
+      window.addEventListener("scroll", updatePopoverPosition, true);
+      const id = requestAnimationFrame(() => updatePopoverPosition());
+      return () => {
+        cancelAnimationFrame(id);
+        ro?.disconnect();
+        window.removeEventListener("resize", updatePopoverPosition);
+        window.removeEventListener("scroll", updatePopoverPosition, true);
+      };
+    }, [isOpen, mounted, updatePopoverPosition]);
 
     const isError = !!error;
 
@@ -636,6 +693,7 @@ export const DatePickerInput = forwardRef<HTMLDivElement, DatePickerInputProps>(
 
         {/* Trigger */}
         <button
+          ref={triggerRef}
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           className={`
@@ -666,23 +724,41 @@ export const DatePickerInput = forwardRef<HTMLDivElement, DatePickerInputProps>(
           </span>
         )}
 
-        {/* Picker Dropdown */}
-        {isOpen && (
-          <div className="absolute top-full left-0 mt-1 z-50">
-            <DatePicker
-              {...pickerProps}
-              value={selectedDate}
-              onChange={handleDateChange}
-              formatDate={formatDate}
-              onApply={handleApply}
-              onClear={() => {
-                handleDateChange(null);
-                pickerProps.onClear?.();
-              }}
-              className={pickerClassName}
-            />
-          </div>
-        )}
+        {/* Picker — portal + flip знизу/зверху (як Select) */}
+        {isOpen &&
+          mounted &&
+          createPortal(
+            <>
+              <button
+                type="button"
+                aria-label="Close date picker"
+                className="fixed inset-0 z-[9998] cursor-default bg-transparent"
+                onClick={() => setIsOpen(false)}
+              />
+              <div
+                ref={popoverRef}
+                className="fixed z-[9999]"
+                style={{ top: popoverPos.top, left: popoverPos.left }}
+                role="dialog"
+                aria-modal="true"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <DatePicker
+                  {...pickerProps}
+                  value={selectedDate}
+                  onChange={handleDateChange}
+                  formatDate={formatDate}
+                  onApply={handleApply}
+                  onClear={() => {
+                    handleDateChange(null);
+                    pickerProps.onClear?.();
+                  }}
+                  className={pickerClassName}
+                />
+              </div>
+            </>,
+            document.body,
+          )}
       </div>
     );
   }

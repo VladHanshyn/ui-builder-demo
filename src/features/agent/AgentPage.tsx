@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { ResultTabsContent } from "./components/ResultTabs";
 import { agentApi } from "./agentApi";
-import { WizardModal, intentToUiSpecWithValidation, type WizardIntent } from "@/ui-generator";
 import type { ChatMessage, GenerationStep, UISpec, Artifact, TableColumn } from "./types";
 
 // Theme hook
@@ -260,9 +259,6 @@ export function AgentPage() {
   const [currentErrors, setCurrentErrors] = useState<string[]>([]);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
 
-  // Wizard State
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
-
   // Initialize session on mount
   useEffect(() => {
     async function initSession() {
@@ -377,146 +373,6 @@ export function AgentPage() {
 
   const isLoading = generationStep === "generating" || generationStep === "validating";
 
-  // Wizard submit handler
-  const handleWizardSubmit = useCallback((intent: WizardIntent) => {
-    try {
-      // Convert intent to UISpec and validate against design system rules
-      const { spec: wizardSpec, autoFixes } = intentToUiSpecWithValidation(intent);
-      
-      const fixedRules = autoFixes.filter(f => f.severity === "fixed");
-      if (fixedRules.length > 0) {
-        console.info(`[Wizard] Auto-applied ${fixedRules.length} design system rules:`, fixedRules);
-      }
-      
-      // Build columns based on selected fields from wizard
-      const dataTypeToColumnType = (dataType: string): TableColumn["type"] => {
-        const mapping: Record<string, TableColumn["type"]> = {
-          string: "text",
-          number: "number",
-          date: "date",
-          enum: "status",
-          boolean: "text",
-          user: "text",
-          media: "text",
-          id: "text",
-        };
-        return mapping[dataType] || "text";
-      };
-
-      const columns: TableColumn[] = intent.selectedFields.tableColumns.map((field) => ({
-        id: field.id,
-        label: field.label,
-        type: dataTypeToColumnType(field.dataType),
-        sortable: ["date", "number", "string", "user"].includes(field.dataType),
-        ...(field.dataType === "id" ? { width: "80px" } : {}),
-        ...(field.copyable ? { copyable: true } : {}),
-      }));
-
-      // Add actions column if any row actions are enabled (always rightmost)
-      const hasAnyRowAction = intent.rowActions.viewDetails || intent.rowActions.edit || 
-        intent.rowActions.duplicate || intent.rowActions.approve || 
-        intent.rowActions.reject || intent.rowActions.delete;
-      
-      if (hasAnyRowAction) {
-        columns.push({ 
-          id: "actions", 
-          label: "Actions", 
-          type: "actions", 
-          width: "140px",
-          actions: {
-            view: intent.rowActions.viewDetails,
-            edit: intent.rowActions.edit,
-            duplicate: intent.rowActions.duplicate,
-            delete: intent.rowActions.delete,
-          },
-        });
-      }
-
-      // Create a spec that matches the Agent's expected UISpec format
-      const agentSpec: UISpec = {
-        version: "1.0",
-        page: {
-          id: wizardSpec.id,
-          title: wizardSpec.title || intent.title,
-          description: wizardSpec.description,
-        },
-        toolbar: {
-          search: intent.filters.freeTextSearch,
-          filters: Object.entries(intent.filters.fieldFilters || {})
-            .filter(([, enabled]) => enabled)
-            .map(([fieldId]) => {
-              // Find the field label from selected table columns
-              const field = intent.selectedFields.tableColumns.find(f => f.id === fieldId);
-              return {
-                id: fieldId,
-                label: field?.label || fieldId.charAt(0).toUpperCase() + fieldId.slice(1).replace(/-/g, " "),
-                type: "select" as const,
-              };
-            }),
-          actions: [
-            ...(intent.bulkActions.approveSelected
-              ? [{ id: "approve-selected", label: "Approve Selected", variant: "secondary" as const }]
-              : []),
-            ...(intent.bulkActions.rejectSelected
-              ? [{ id: "reject-selected", label: "Reject Selected", variant: "secondary" as const }]
-              : []),
-            { id: "create", label: "Create", variant: "primary" as const, icon: "plus" },
-          ],
-        },
-        table: {
-          columns,
-          pagination: true,
-          selectable: intent.bulkActions.approveSelected || intent.bulkActions.rejectSelected,
-        },
-        drawer: intent.detailsOpen === "side-panel" ? { enabled: true, title: `${intent.title} Details` } : undefined,
-      };
-
-      // Set as current spec
-      setCurrentSpec(agentSpec);
-      setCurrentErrors([]);
-      setActiveTab("preview");
-
-      // Add to artifacts
-      const newArtifact: Artifact = {
-        artifactId: `wizard-${Date.now()}`,
-        title: intent.title,
-        status: "DONE",
-        spec: agentSpec,
-        errors: [],
-        createdAt: new Date().toISOString(),
-      };
-      setArtifacts((prev) => [newArtifact, ...prev]);
-
-      // Build auto-fix summary for chat message
-      const fixedCount = autoFixes.filter(f => f.severity === "fixed").length;
-      const fixSummary = fixedCount > 0
-        ? `\n\n✅ ${fixedCount} design system rule${fixedCount !== 1 ? "s" : ""} auto-applied.`
-        : "";
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}`,
-          role: "assistant",
-          content: `Created "${intent.title}" page via Wizard with ${intent.primaryView} view, ${intent.selectedFields.tableColumns.length} table columns, and ${Object.values(intent.rowActions).filter(Boolean).length} row actions.${fixSummary}`,
-          timestamp: new Date().toISOString(),
-          status: "done",
-        },
-      ]);
-    } catch (error) {
-      console.error("Wizard error:", error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}`,
-          role: "assistant",
-          content: `Wizard failed: ${(error as Error).message}`,
-          timestamp: new Date().toISOString(),
-          status: "failed",
-        },
-      ]);
-    }
-  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-[var(--color-base-surface-secondary)]">
@@ -677,17 +533,11 @@ export function AgentPage() {
             errors={currentErrors}
             artifacts={artifacts}
             onArtifactSelect={handleArtifactSelect}
-            onOpenWizard={() => setIsWizardOpen(true)}
+            onOpenWizard={() => { window.location.href = "/wizard"; }}
           />
         </main>
       </div>
 
-      {/* Wizard Modal */}
-      <WizardModal
-        isOpen={isWizardOpen}
-        onClose={() => setIsWizardOpen(false)}
-        onSubmit={handleWizardSubmit}
-      />
     </div>
   );
 }
